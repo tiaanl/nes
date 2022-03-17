@@ -1,10 +1,12 @@
 mod cartridge;
 mod decoder;
 mod instruction;
+mod mapper;
 
 use crate::cartridge::Cartridge;
 use crate::instruction::{Instruction, Offset, Operand, Operation};
 use bitflags::bitflags;
+use std::borrow::Borrow;
 use std::cell::RefCell;
 use std::ops::BitAnd;
 use std::rc::Rc;
@@ -515,9 +517,7 @@ impl Bus for CpuBus {
         if address < 0x0800 {
             self.ram.read(address)
         } else {
-            log::warn!("Reading from unmapped memory location: ${:#06X}", address);
-            // 0
-            0x4C
+            self.cartridge.cpu_read(address)
         }
     }
 
@@ -525,11 +525,7 @@ impl Bus for CpuBus {
         if address < 0x0800 {
             self.ram.write(address, value)
         } else {
-            log::warn!(
-                "Writing to unmapped memory location: ${:#06X} = #{:#04X}",
-                address,
-                value
-            );
+            self.cartridge.cpu_write(address, value)
         }
     }
 }
@@ -578,8 +574,8 @@ impl Clock {
 
     pub fn run(&mut self) {
         let between_steps = 1.0 / self.frequency;
-        dbg!(between_steps);
         loop {
+            println!("tick");
             let start_time = std::time::Instant::now();
             self.step();
             let mut first = true;
@@ -608,12 +604,17 @@ impl Clock {
 fn main() {
     pretty_env_logger::init();
 
-    let bytes = include_bytes!("../nestest.nes");
-    let cartridge = cartridge::ines::load(std::io::Cursor::new(bytes)).unwrap();
+    let cartridge = {
+        let data = std::io::Cursor::new(include_bytes!("../nestest.nes"));
+        cartridge::ines::load(data).unwrap()
+    };
 
-    let bus = CpuBus::new(cartridge);
-
-    let cpu = Cpu::new(bus);
+    let cpu = {
+        let bus = CpuBus::new(cartridge);
+        let mut cpu = Cpu::new(bus);
+        cpu.state.program_counter = 0xC000;
+        cpu
+    };
 
     let mut clock = Clock::new(1.0);
     clock.connect_processor(Rc::new(RefCell::new(cpu)));
