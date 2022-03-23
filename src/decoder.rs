@@ -42,13 +42,9 @@ pub fn decode_instruction(it: &mut impl Iterator<Item = u8>) -> Option<DecodedIn
             Operand::Indirect(u16::from_le_bytes([it.next()?, it.next()?]), Offset::None)
         }
 
-        AddressingMode::Izx => {
-            Operand::Indirect(u16::from_le_bytes([it.next()?, it.next()?]), Offset::X)
-        }
+        AddressingMode::Izx => Operand::Indirect(u16::from_le_bytes([it.next()?, 0]), Offset::X),
 
-        AddressingMode::Izy => {
-            Operand::Indirect(u16::from_le_bytes([it.next()?, it.next()?]), Offset::Y)
-        }
+        AddressingMode::Izy => Operand::Indirect(u16::from_le_bytes([it.next()?, 0]), Offset::Y),
     };
 
     Some(DecodedInstruction {
@@ -56,7 +52,7 @@ pub fn decode_instruction(it: &mut impl Iterator<Item = u8>) -> Option<DecodedIn
             operation: instruction_detail.0,
             operand,
         },
-        cycles: 2,
+        cycles: instruction_detail.2,
     })
 }
 

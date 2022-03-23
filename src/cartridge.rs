@@ -1,5 +1,4 @@
 use crate::mapper::Mapper;
-use crate::Bus;
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -89,7 +88,7 @@ pub mod ines {
 
         Ok(Cartridge {
             program_memory,
-            character_memory,
+            _character_memory: character_memory,
             mapper: Rc::new(RefCell::new(mapper)),
         })
     }
@@ -97,7 +96,7 @@ pub mod ines {
 
 pub struct Cartridge {
     program_memory: Vec<u8>,
-    character_memory: Vec<u8>,
+    _character_memory: Vec<u8>,
 
     mapper: Rc<RefCell<dyn Mapper>>,
 }
