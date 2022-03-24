@@ -1202,6 +1202,24 @@ impl<B: Bus> Cpu<B> {
                 self.cycles_remaining += self.set_operand_value(&instruction.operand, result);
             }
 
+            // Return from Interrupt
+            //
+            // The status register is pulled with the break flag and bit 5 ignored. Then PC is
+            // pulled from the stack.
+            //
+            // pull SR, pull PC
+            // N Z C I D V
+            // from stack
+            // addressing   assembler   opc     bytes   cycles
+            // implied      RTI         40      1       6
+            Operation::RTI => {
+                self.state.flags = Flags::from_bits_truncate(self.pull());
+                self.state.flags.set(Flags::BREAK | Flags::UNUSED, false);
+
+                let addr = self.pull_16();
+                self.state.program_counter = addr;
+            }
+
             _ => todo!("Instruction execution not implemented: {:?}", instruction),
         }
     }
