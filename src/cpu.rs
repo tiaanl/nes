@@ -82,25 +82,48 @@ impl<'a, B: Bus> Iterator for BusIterator<'a, B> {
     }
 }
 
-fn show_byte(operation: &Operation) -> bool {
-    match operation {
-        Operation::JSR | Operation::JMP => false,
-        _ => true,
-    }
-}
-
 fn instruction_to_string<B: Bus>(instruction: &Instruction, cpu: &Cpu<B>) -> String {
     let operand_part = match instruction.operand {
         Operand::Immediate(value) => format!(" #${:02X}", value),
 
-        Operand::Indirect(_, _) | Operand::Absolute(_, _) => {
-            let (absolute_address, _) = cpu.get_absolute_address_for_operand(&instruction.operand);
-            format!(" ${:04X}", absolute_address)
+        Operand::Absolute(absolute_address, offset) => {
+            format!(
+                " ${:04X}{}",
+                absolute_address,
+                match offset {
+                    Offset::None => "",
+                    Offset::X => ",X",
+                    Offset::Y => ",Y",
+                }
+            )
         }
 
-        Operand::ZeroPage(_, _) => {
-            let (absolute_address, _) = cpu.get_absolute_address_for_operand(&instruction.operand);
-            format!(" ${:02X}", absolute_address)
+        Operand::Indirect(indirect_address) => {
+            format!(" (${:04X})", indirect_address,)
+        }
+
+        Operand::IndirectZeroPage(indirect_address, offset) => {
+            format!(
+                " (${:02X}{}",
+                indirect_address,
+                match offset {
+                    Offset::None => ")",
+                    Offset::X => ",X)",
+                    Offset::Y => "),Y",
+                }
+            )
+        }
+
+        Operand::ZeroPage(address, offset) => {
+            format!(
+                " ${:02X}{}",
+                address,
+                match offset {
+                    Offset::None => "",
+                    Offset::X => ",X",
+                    Offset::Y => ",Y",
+                }
+            )
         }
 
         Operand::Relative(offset) => {
@@ -193,17 +216,87 @@ impl<B: Bus> Cpu<B> {
                 format!(
                     "{}{}",
                     instruction_to_string(&decoded.instruction, self),
-                    if show_byte(&decoded.instruction.operation) {
-                        match &decoded.instruction.operand {
-                            oper @ Operand::Absolute(_, _) | oper @ Operand::ZeroPage(_, _) => {
-                                let (addr, _) = self.get_absolute_address_for_operand(oper);
-                                let value = self.bus.read(addr);
-                                format!(" = {:02X}", value)
+                    match decoded.instruction.operand {
+                        oper @ Operand::Absolute(_, offset)
+                            if !matches!(
+                                decoded.instruction.operation,
+                                Operation::JMP | Operation::JSR
+                            ) =>
+                        {
+                            let (addr, _) = self.get_absolute_address_for_operand(&oper);
+                            let value = self.bus.read(addr);
+                            match offset {
+                                Offset::None => format!(" = {:02X}", value),
+                                Offset::X => format!(" @ {:04X} = {:02X}", addr, value),
+                                Offset::Y => format!(" @ {:04X} = {:02X}", addr, value),
                             }
-                            _ => format!(""),
                         }
-                    } else {
-                        format!("")
+
+                        oper @ Operand::ZeroPage(_, offset)
+                            if !matches!(
+                                decoded.instruction.operation,
+                                Operation::JMP | Operation::JSR
+                            ) =>
+                        {
+                            let (addr, _) = self.get_absolute_address_for_operand(&oper);
+                            let value = self.bus.read(addr);
+                            match offset {
+                                Offset::None => format!(" = {:02X}", value),
+                                Offset::X => format!(" @ {:02X} = {:02X}", addr, value),
+                                Offset::Y => format!(" @ {:02X} = {:02X}", addr, value),
+                            }
+                        }
+
+                        oper @ Operand::Indirect(indirect_address) => {
+                            let (absolute_address, _) =
+                                self.get_absolute_address_for_operand(&oper);
+                            let value = self.bus.read(absolute_address);
+
+                            if matches!(
+                                decoded.instruction.operation,
+                                Operation::JMP | Operation::JSR
+                            ) {
+                                format!(" = {:04X}", absolute_address)
+                            } else {
+                                format!(
+                                    " @ {:02X} = {:04X} = {:02X}",
+                                    indirect_address as u8, absolute_address, value
+                                )
+                            }
+                        }
+                        oper @ Operand::IndirectZeroPage(indirect_address, offset) => {
+                            let (absolute_address, _) =
+                                self.get_absolute_address_for_operand(&oper);
+                            let value = self.bus.read(absolute_address);
+
+                            match offset {
+                                Offset::None => format!(""),
+                                Offset::X => {
+                                    let with_offset =
+                                        indirect_address.wrapping_add(self.state.x_register);
+                                    format!(
+                                        " @ {:02X} = {:04X} = {:02X}",
+                                        with_offset, absolute_address, value
+                                    )
+                                }
+                                Offset::Y => {
+                                    let pointer = indirect_address as u16;
+                                    let lo = self.bus.read(pointer);
+                                    let hi = self.bus.read((pointer.wrapping_add(1)) & 0xFF);
+
+                                    let absolute_address = u16::from_le_bytes([lo, hi])
+                                        .wrapping_add(self.state.y_register as u16);
+
+                                    format!(
+                                        " = {:04X} @ {:04X} = {:02X}",
+                                        u16::from_le_bytes([lo, hi]),
+                                        absolute_address,
+                                        value
+                                    )
+                                }
+                            }
+                        }
+                        _ => format!(""),
                     }
                 )
             );
@@ -271,9 +364,8 @@ impl<B: Bus> Cpu<B> {
         self.push(bytes[0]);
 
         // Adjust the flags and then push the flags byte onto the stack.
-        self.state.flags.set(Flags::BREAK, false);
-        self.state.flags.set(Flags::UNUSED, true);
-        self.state.flags.set(Flags::INTERRUPTS, true);
+        self.state.flags.remove(Flags::BREAK);
+        self.state.flags.insert(Flags::UNUSED | Flags::INTERRUPTS);
         self.push(self.state.flags.bits());
 
         // Get the next program counter value from the specified address location.
@@ -378,10 +470,11 @@ impl<B: Bus> Cpu<B> {
                         false => 0,
                     };
 
-                    let (result, carry_1) = self.state.accumulator.overflowing_add(value);
-                    let (result, carry_2) = result.overflowing_add(carry);
+                    let temp = (self.state.accumulator as u16)
+                        .wrapping_add(value as u16)
+                        .wrapping_add(carry);
 
-                    (result, carry_1 || carry_2)
+                    (temp as u8, temp & 0xFF00 != 0)
                 };
 
                 self.flags_from_result(result);
@@ -422,10 +515,11 @@ impl<B: Bus> Cpu<B> {
                         false => 1,
                     };
 
-                    let (result, overflow_1) = self.state.accumulator.overflowing_sub(value);
-                    let (result, overflow_2) = result.overflowing_sub(carry);
+                    let result = (self.state.accumulator as u16)
+                        .wrapping_sub(value as u16)
+                        .wrapping_sub(carry);
 
-                    (result, overflow_1 || overflow_2)
+                    (result as u8, result & 0xFF00 != 0)
                 };
 
                 self.state.flags.set(Flags::OVERFLOW, {
@@ -623,6 +717,29 @@ impl<B: Bus> Cpu<B> {
                 self.cycles_remaining += cycles_required;
                 self.flags_from_result(value);
                 self.state.x_register = value;
+            }
+
+            // Shift One Bit Right (Memory or Accumulator)
+            //
+            // 0 -> [76543210] -> C
+            // N Z C I D V
+            // 0 + + - - -
+            // addressing   assembler   opc     bytes   cycles
+            // accumulator  LSR A       4A      1       2
+            // zeropage     LSR oper    46      2       5
+            // zeropage,X   LSR oper,X  56      2       6
+            // absolute     LSR oper    4E      3       6
+            // absolute,X   LSR oper,X  5E      3       7
+            Operation::LSR => {
+                let (value, cycles_required) = self.get_operand_value(&instruction.operand);
+                self.cycles_remaining += cycles_required;
+
+                self.state.flags.set(Flags::CARRY, value & 0x01 != 0);
+                let result = value.wrapping_shr(1);
+                self.flags_from_result(result);
+
+                let cycles_required = self.set_operand_value(&instruction.operand, result);
+                self.cycles_remaining += cycles_required;
             }
 
             // No Operation
@@ -836,15 +953,15 @@ impl<B: Bus> Cpu<B> {
             // M -> A
             // N Z C I D V
             // + + - - - -
-            // addressing       assembler       opc         bytes   cycles
-            // immediate        LDA #oper       A9      2      2
-            // zeropage         LDA oper        A5      2      3
-            // zeropage,X       LDA oper,X      B5      2      4
-            // absolute         LDA oper        AD      3      4
-            // absolute,X       LDA oper,X      BD      3      4*
-            // absolute,Y       LDA oper,Y      B9      3      4*
-            // (indirect,X)     LDA (oper,X)    A1      2      6
-            // (indirect),Y     LDA (oper),Y    B1      2      5*
+            // addressing       assembler       opc     bytes   cycles
+            // immediate        LDA #oper       A9      2       2
+            // zeropage         LDA oper        A5      2       3
+            // zeropage,X       LDA oper,X      B5      2       4
+            // absolute         LDA oper        AD      3       4
+            // absolute,X       LDA oper,X      BD      3       4*
+            // absolute,Y       LDA oper,Y      B9      3       4*
+            // (indirect,X)     LDA (oper,X)    A1      2       6
+            // (indirect),Y     LDA (oper),Y    B1      2       5*
             Operation::LDA => {
                 let (value, cycles_required) = self.get_operand_value(&instruction.operand);
                 self.cycles_remaining += cycles_required;
@@ -938,6 +1055,64 @@ impl<B: Bus> Cpu<B> {
                 self.state
                     .flags
                     .set(Flags::OVERFLOW, value.bitand(Flags::OVERFLOW.bits()) != 0);
+            }
+
+            // Rotate One Bit Left (Memory or Accumulator)
+            //
+            // C <- [76543210] <- C
+            // N Z C I D V
+            // + + + - - -
+            // addressing   assembler   opc     bytes   cycles
+            // accumulator  ROL A       2A      1       2
+            // zeropage     ROL oper    26      2       5
+            // zeropage,X   ROL oper,X  36      2       6
+            // absolute     ROL oper    2E      3       6
+            // absolute,X   ROL oper,X  3E      3       7
+            Operation::ROL => {
+                let (value, cycles_required) = self.get_operand_value(&instruction.operand);
+                self.cycles_remaining += cycles_required;
+
+                let result = value.wrapping_shl(1).wrapping_add(
+                    if self.state.flags.contains(Flags::CARRY) {
+                        0x01
+                    } else {
+                        0x00
+                    },
+                );
+
+                self.flags_from_result(result);
+                self.state.flags.set(Flags::CARRY, value & 0x80 != 0);
+
+                self.cycles_remaining += self.set_operand_value(&instruction.operand, result);
+            }
+
+            // Rotate One Bit Right (Memory or Accumulator)
+            //
+            // C -> [76543210] -> C
+            // N Z C I D V
+            // + + + - - -
+            // addressing   assembler   opc     bytes   cycles
+            // accumulator  ROR A       6A      1       2
+            // zeropage     ROR oper    66      2       5
+            // zeropage,X   ROR oper,X  76      2       6
+            // absolute     ROR oper    6E      3       6
+            // absolute,X   ROR oper,X  7E      3       7
+            Operation::ROR => {
+                let (value, cycles_required) = self.get_operand_value(&instruction.operand);
+                self.cycles_remaining += cycles_required;
+
+                let result = value.wrapping_shr(1).wrapping_add(
+                    if self.state.flags.contains(Flags::CARRY) {
+                        0x80
+                    } else {
+                        0x00
+                    },
+                );
+
+                self.flags_from_result(result);
+                self.state.flags.set(Flags::CARRY, value & 0x01 != 0);
+
+                self.cycles_remaining += self.set_operand_value(&instruction.operand, result);
             }
 
             // Return from Subroutine
@@ -1121,27 +1296,15 @@ impl<B: Bus> Cpu<B> {
             // absolute     ASL oper    0E      3       6
             // absolute,X   ASL oper,X  1E      3       7
             Operation::ASL => {
-                let value = match instruction.operand {
-                    Operand::None => self.state.accumulator,
-                    _ => {
-                        let (value, cycles_required) = self.get_operand_value(&instruction.operand);
-                        self.cycles_remaining += cycles_required;
-                        value
-                    }
-                };
+                let (value, cycles_required) = self.get_operand_value(&instruction.operand);
+                self.cycles_remaining += cycles_required;
 
-                let (result, overflow) = value.overflowing_shl(1);
-                self.flags_from_result(result);
-                self.state.flags.set(Flags::CARRY, overflow);
+                let result = value.wrapping_shl(1);
 
-                // If no operand is specified, we store the result in the accumulator.
-                match instruction.operand {
-                    Operand::None => self.state.accumulator = result,
-                    _ => {
-                        self.cycles_remaining +=
-                            self.set_operand_value(&instruction.operand, result)
-                    }
-                }
+                self.flags_from_result(result as u8);
+                self.state.flags.set(Flags::CARRY, value & 0x80 != 0);
+
+                self.cycles_remaining += self.set_operand_value(&instruction.operand, result as u8);
             }
 
             // CMP and DEX at once, sets flags like CMP
@@ -1214,7 +1377,8 @@ impl<B: Bus> Cpu<B> {
             // implied      RTI         40      1       6
             Operation::RTI => {
                 self.state.flags = Flags::from_bits_truncate(self.pull());
-                self.state.flags.set(Flags::BREAK | Flags::UNUSED, false);
+                self.state.flags.insert(Flags::UNUSED);
+                self.state.flags.remove(Flags::BREAK);
 
                 let addr = self.pull_16();
                 self.state.program_counter = addr;
@@ -1254,7 +1418,7 @@ impl<B: Bus> Cpu<B> {
 
     fn get_operand_value(&self, operand: &Operand) -> (u8, u8) {
         match operand {
-            Operand::None => unreachable!("No value available for Operand::None."),
+            Operand::None => (self.state.accumulator, 0),
 
             Operand::Immediate(value) => (*value, 0),
 
@@ -1272,7 +1436,10 @@ impl<B: Bus> Cpu<B> {
     #[must_use]
     fn set_operand_value(&mut self, operand: &Operand, value: u8) -> u8 {
         match operand {
-            Operand::None => unreachable!("Can not set a value for a None operand!"),
+            Operand::None => {
+                self.state.accumulator = value;
+                0
+            }
             Operand::Immediate(_) => unreachable!("Can not set a value for an Immediate operand!"),
             Operand::Relative(_) => todo!(),
             _ => {
@@ -1285,17 +1452,17 @@ impl<B: Bus> Cpu<B> {
 
     #[must_use]
     fn get_absolute_address_for_operand(&self, operand: &Operand) -> (u16, u8) {
-        match operand {
+        match *operand {
             Operand::Relative(offset) => {
-                let addr = self.state.program_counter.wrapping_add(*offset as u16);
-                (
-                    addr,
-                    if !same_page(addr, self.state.program_counter) {
-                        2
-                    } else {
-                        1
-                    },
-                )
+                let addr = self.state.program_counter.wrapping_add(offset as u16);
+
+                let cycles_required = if !same_page(addr, self.state.program_counter) {
+                    2
+                } else {
+                    1
+                };
+
+                (addr, cycles_required)
             }
 
             Operand::Absolute(address, offset) => {
@@ -1305,7 +1472,7 @@ impl<B: Bus> Cpu<B> {
                     Offset::Y => self.state.y_register as u16,
                 });
 
-                let cycles_required = if !same_page(*address, offset_address) {
+                let cycles_required = if !same_page(address, offset_address) {
                     1
                 } else {
                     0
@@ -1315,46 +1482,46 @@ impl<B: Bus> Cpu<B> {
             }
 
             Operand::ZeroPage(address, offset) => {
-                let address = u16::from_le_bytes([*address, 0x00]);
-
-                let address = address.wrapping_add(match offset {
-                    Offset::None => 0,
-                    Offset::X => self.state.x_register as u16,
-                    Offset::Y => self.state.y_register as u16,
-                });
+                let address = u16::from_le_bytes([
+                    address.wrapping_add(match offset {
+                        Offset::None => 0,
+                        Offset::X => self.state.x_register,
+                        Offset::Y => self.state.y_register,
+                    }),
+                    0x00,
+                ]);
 
                 (address, 0)
             }
 
-            Operand::Indirect(pointer, offset) => match offset {
-                Offset::None => {
-                    let pointer = *pointer;
+            Operand::Indirect(pointer) => {
+                let lo = self.bus.read(pointer);
+                let hi = self.bus.read(if pointer & 0xFF == 0xFF {
+                    pointer & 0xFF00
+                } else {
+                    pointer + 1
+                });
 
-                    let lo = self.bus.read(pointer);
-                    let hi = self.bus.read(if pointer & 0xFF == 0xFF {
-                        pointer & 0xFF00
-                    } else {
-                        pointer + 1
-                    });
+                (u16::from_le_bytes([lo, hi]), 0)
+            }
 
-                    (u16::from_le_bytes([lo, hi]), 0)
-                }
+            Operand::IndirectZeroPage(pointer, offset) => match offset {
+                Offset::None => unreachable!(),
                 Offset::X => {
-                    let pointer = (*pointer).wrapping_add(self.state.x_register as u16) & 0xFF;
+                    let pointer = pointer.wrapping_add(self.state.x_register) as u16;
                     let lo = self.bus.read(pointer);
                     let hi = self.bus.read((pointer + 1) & 0xFF);
 
                     (u16::from_le_bytes([lo, hi]), 0)
                 }
                 Offset::Y => {
-                    let pointer = pointer & 0xFF;
-                    let lo = self.bus.read(pointer);
-                    let hi = self.bus.read((pointer + 1) & 0xFF);
+                    let lo = self.bus.read(pointer as u16);
+                    let hi = self.bus.read(pointer.wrapping_add(1) as u16);
 
                     let address =
                         u16::from_le_bytes([lo, hi]).wrapping_add(self.state.y_register as u16);
 
-                    let extra_cycles = match same_page(pointer, address) {
+                    let extra_cycles = match same_page(address, (hi as u16) << 8) {
                         true => 0,
                         false => 1,
                     };
@@ -1384,10 +1551,10 @@ impl<B: Bus> Cpu<B> {
     }
 
     fn operation_compare(&mut self, left: u8, right: u8) {
-        let (result, overflow) = left.overflowing_sub(right);
+        let result = left.wrapping_sub(right);
 
         self.flags_from_result(result);
-        self.state.flags.set(Flags::CARRY, !overflow);
+        self.state.flags.set(Flags::CARRY, left >= right);
     }
 }
 

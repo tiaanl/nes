@@ -168,7 +168,7 @@ impl std::fmt::Display for Operation {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum Offset {
     None,
     X,
@@ -179,41 +179,42 @@ impl std::fmt::Display for Offset {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Offset::None => Ok(()),
-            Offset::X => write!(f, ",X"),
-            Offset::Y => write!(f, ",Y"),
+            Offset::X => write!(f, "X"),
+            Offset::Y => write!(f, "Y"),
         }
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum Operand {
     None,
     Immediate(u8),
     Relative(i8),
     Absolute(u16, Offset),
     ZeroPage(u8, Offset),
-    Indirect(u16, Offset),
+    Indirect(u16),
+    IndirectZeroPage(u8, Offset),
 }
 
-impl std::fmt::Display for Operand {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Operand::None => write!(f, ""),
-            Operand::Immediate(value) => write!(f, "#${:02X}", value),
-            Operand::Relative(value) => write!(f, "#{}", value),
-            Operand::Absolute(addr, offset) => write!(f, "${:04X}{}", addr, offset),
-            Operand::ZeroPage(addr, offset) => write!(f, "${:02X}{}", addr, offset),
-            Operand::Indirect(addr, offset) => {
-                write!(f, "(${:04X}", addr)?;
-                match offset {
-                    Offset::None => write!(f, ")"),
-                    Offset::X => write!(f, ",X)"),
-                    Offset::Y => write!(f, "),Y"),
-                }
-            }
-        }
-    }
-}
+// impl std::fmt::Display for Operand {
+//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+//         match self {
+//             Operand::None => write!(f, ""),
+//             Operand::Immediate(value) => write!(f, "#${:02X}", value),
+//             Operand::Relative(value) => write!(f, "#{}", value),
+//             Operand::Absolute(addr, offset) => write!(f, "${:04X}{}", addr, offset),
+//             Operand::ZeroPage(addr, offset) => write!(f, "${:02X}{}", addr, offset),
+//             Operand::Indirect(addr, offset) => {
+//                 write!(f, "(${:04X}", addr)?;
+//                 match offset {
+//                     Offset::None => write!(f, ")"),
+//                     Offset::X => write!(f, ",X)"),
+//                     Offset::Y => write!(f, "),Y"),
+//                 }
+//             }
+//         }
+//     }
+// }
 
 #[derive(Debug)]
 pub struct Instruction {
@@ -224,11 +225,5 @@ pub struct Instruction {
 impl Instruction {
     pub fn new(operation: Operation, operand: Operand) -> Self {
         Self { operation, operand }
-    }
-}
-
-impl std::fmt::Display for Instruction {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{} {}", self.operation, self.operand)
     }
 }

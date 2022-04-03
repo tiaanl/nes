@@ -27,10 +27,12 @@ impl RandomAccessMemory {
 }
 
 impl Bus for RandomAccessMemory {
+    #[inline(always)]
     fn read(&self, address: u16) -> u8 {
         self.data[address as usize]
     }
 
+    #[inline(always)]
     fn write(&mut self, address: u16, value: u8) {
         self.data[address as usize] = value;
     }
@@ -79,9 +81,9 @@ impl Bus for CpuBus {
     }
 
     fn write(&mut self, address: u16, value: u8) {
-        if address == 0x0000 && value != 0x00 {
-            panic!("writing to 0x0000: {:#04X}", value);
-        }
+        // if address == 0x0000 && value != 0x00 {
+        //     panic!("writing to 0x0000: {:#04X}", value);
+        // }
 
         // log::trace!("Writing ${:02X} to CPU bus at ${:04X}", value, address);
 
