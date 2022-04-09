@@ -46,9 +46,10 @@ pub fn decode_instruction(it: &mut impl Iterator<Item = u8>) -> Option<DecodedIn
     };
 
     Some(DecodedInstruction {
-        instruction: Instruction {
-            operation: instruction_detail.0,
-            operand,
+        instruction: if instruction_detail.3 {
+            Instruction::new(instruction_detail.0, operand)
+        } else {
+            Instruction::new_illegal(instruction_detail.0, operand)
         },
         cycles: instruction_detail.2,
     })
@@ -75,266 +76,275 @@ pub mod data {
     }
 
     #[derive(Debug)]
-    pub struct InstructionDetail(pub Operation, pub AddressingMode, pub u8);
+    pub struct InstructionDetail(pub Operation, pub AddressingMode, pub u8, pub bool);
+
+    const fn id(
+        operation: Operation,
+        addressing_mode: AddressingMode,
+        cycles_required: u8,
+        legal: bool,
+    ) -> InstructionDetail {
+        InstructionDetail(operation, addressing_mode, cycles_required, legal)
+    }
 
     #[rustfmt::skip]
     pub const INSTRUCTIONS: [InstructionDetail; 256] = [
-        /* 00 */ InstructionDetail(Operation::BRK,  AddressingMode::Implied,   7), // BRK  impl
-        /* 01 */ InstructionDetail(Operation::ORA,  AddressingMode::Izx,       6), // ORA  X,ind
-        /* 02 */ InstructionDetail(Operation::JAM,  AddressingMode::Implied,   2), // JAM
-        /* 03 */ InstructionDetail(Operation::SLO,  AddressingMode::Izx,       8), // SLO  X,ind
-        /* 04 */ InstructionDetail(Operation::NOP_, AddressingMode::Zp0,       3), // NOP  zpg
-        /* 05 */ InstructionDetail(Operation::ORA,  AddressingMode::Zp0,       3), // ORA  zpg
-        /* 06 */ InstructionDetail(Operation::ASL,  AddressingMode::Zp0,       5), // ASL  zpg
-        /* 07 */ InstructionDetail(Operation::SLO,  AddressingMode::Zp0,       5), // SLO  zpg
-        /* 08 */ InstructionDetail(Operation::PHP,  AddressingMode::Implied,   3), // PHP  impl
-        /* 09 */ InstructionDetail(Operation::ORA,  AddressingMode::Immediate, 2), // ORA  #
-        /* 0A */ InstructionDetail(Operation::ASL,  AddressingMode::Implied,   2), // ASL  A
-        /* 0B */ InstructionDetail(Operation::ANC,  AddressingMode::Immediate, 2), // ANC  #
-        /* 0C */ InstructionDetail(Operation::NOP_, AddressingMode::Absolute,  4), // NOP  abs
-        /* 0D */ InstructionDetail(Operation::ORA,  AddressingMode::Absolute,  4), // ORA  abs
-        /* 0E */ InstructionDetail(Operation::ASL,  AddressingMode::Absolute,  6), // ASL  abs
-        /* 0F */ InstructionDetail(Operation::SLO,  AddressingMode::Absolute,  6), // SLO  abs
-        /* 10 */ InstructionDetail(Operation::BPL,  AddressingMode::Relative,  2), // BPL  rel
-        /* 11 */ InstructionDetail(Operation::ORA,  AddressingMode::Izy,       5), // ORA  ind,Y
-        /* 12 */ InstructionDetail(Operation::JAM,  AddressingMode::Implied,   2), // JAM
-        /* 13 */ InstructionDetail(Operation::SLO,  AddressingMode::Izy,       8), // SLO  ind,Y
-        /* 14 */ InstructionDetail(Operation::NOP_, AddressingMode::Zpx,       4), // NOP  zpg,X
-        /* 15 */ InstructionDetail(Operation::ORA,  AddressingMode::Zpx,       4), // ORA  zpg,X
-        /* 16 */ InstructionDetail(Operation::ASL,  AddressingMode::Zpx,       6), // ASL  zpg,X
-        /* 17 */ InstructionDetail(Operation::SLO,  AddressingMode::Zpx,       6), // SLO  zpg,X
-        /* 18 */ InstructionDetail(Operation::CLC,  AddressingMode::Implied,   2), // CLC  impl
-        /* 19 */ InstructionDetail(Operation::ORA,  AddressingMode::Aby,       4), // ORA  abs,Y
-        /* 1A */ InstructionDetail(Operation::NOP_, AddressingMode::Implied,   2), // NOP  impl
-        /* 1B */ InstructionDetail(Operation::SLO,  AddressingMode::Aby,       7), // SLO  abs,Y
-        /* 1C */ InstructionDetail(Operation::NOP_, AddressingMode::Abx,       4), // NOP  abs,X
-        /* 1D */ InstructionDetail(Operation::ORA,  AddressingMode::Abx,       4), // ORA  abs,X
-        /* 1E */ InstructionDetail(Operation::ASL,  AddressingMode::Abx,       7), // ASL  abs,X
-        /* 1F */ InstructionDetail(Operation::SLO,  AddressingMode::Abx,       7), // SLO  abs,X
-        /* 20 */ InstructionDetail(Operation::JSR,  AddressingMode::Absolute,  6), // JSR  abs
-        /* 21 */ InstructionDetail(Operation::AND,  AddressingMode::Izx,       6), // AND  X,ind
-        /* 22 */ InstructionDetail(Operation::JAM,  AddressingMode::Implied,   2), // JAM
-        /* 23 */ InstructionDetail(Operation::RLA,  AddressingMode::Izx,       8), // RLA  X,ind
-        /* 24 */ InstructionDetail(Operation::BIT,  AddressingMode::Zp0,       3), // BIT  zpg
-        /* 25 */ InstructionDetail(Operation::AND,  AddressingMode::Zp0,       3), // AND  zpg
-        /* 26 */ InstructionDetail(Operation::ROL,  AddressingMode::Zp0,       5), // ROL  zpg
-        /* 27 */ InstructionDetail(Operation::RLA,  AddressingMode::Zp0,       5), // RLA  zpg
-        /* 28 */ InstructionDetail(Operation::PLP,  AddressingMode::Implied,   4), // PLP  impl
-        /* 29 */ InstructionDetail(Operation::AND,  AddressingMode::Immediate, 2), // AND  #
-        /* 2A */ InstructionDetail(Operation::ROL,  AddressingMode::Implied,   2), // ROL  A
-        /* 2B */ InstructionDetail(Operation::ANC,  AddressingMode::Immediate, 2), // ANC  #
-        /* 2C */ InstructionDetail(Operation::BIT,  AddressingMode::Absolute,  4), // BIT  abs
-        /* 2D */ InstructionDetail(Operation::AND,  AddressingMode::Absolute,  4), // AND  abs
-        /* 2E */ InstructionDetail(Operation::ROL,  AddressingMode::Absolute,  6), // ROL  abs
-        /* 2F */ InstructionDetail(Operation::RLA,  AddressingMode::Absolute,  6), // RLA  abs
-        /* 30 */ InstructionDetail(Operation::BMI,  AddressingMode::Relative,  2), // BMI  rel
-        /* 31 */ InstructionDetail(Operation::AND,  AddressingMode::Izy,       5), // AND  ind,Y
-        /* 32 */ InstructionDetail(Operation::JAM,  AddressingMode::Implied,   2), // JAM
-        /* 33 */ InstructionDetail(Operation::RLA,  AddressingMode::Izy,       8), // RLA  ind,Y
-        /* 34 */ InstructionDetail(Operation::NOP_, AddressingMode::Zpx,       4), // NOP  zpg,X
-        /* 35 */ InstructionDetail(Operation::AND,  AddressingMode::Zpx,       4), // AND  zpg,X
-        /* 36 */ InstructionDetail(Operation::ROL,  AddressingMode::Zpx,       6), // ROL  zpg,X
-        /* 37 */ InstructionDetail(Operation::RLA,  AddressingMode::Zpx,       6), // RLA  zpg,X
-        /* 38 */ InstructionDetail(Operation::SEC,  AddressingMode::Implied,   2), // SEC  impl
-        /* 39 */ InstructionDetail(Operation::AND,  AddressingMode::Aby,       4), // AND  abs,Y
-        /* 3A */ InstructionDetail(Operation::NOP_, AddressingMode::Implied,   2), // NOP  impl
-        /* 3B */ InstructionDetail(Operation::RLA,  AddressingMode::Aby,       7), // RLA  abs,Y
-        /* 3C */ InstructionDetail(Operation::NOP_, AddressingMode::Abx,       4), // NOP  abs,X
-        /* 3D */ InstructionDetail(Operation::AND,  AddressingMode::Abx,       4), // AND  abs,X
-        /* 3E */ InstructionDetail(Operation::ROL,  AddressingMode::Abx,       7), // ROL  abs,X
-        /* 3F */ InstructionDetail(Operation::RLA,  AddressingMode::Abx,       7), // RLA  abs,X
-        /* 40 */ InstructionDetail(Operation::RTI,  AddressingMode::Implied,   6), // RTI  impl
-        /* 41 */ InstructionDetail(Operation::EOR,  AddressingMode::Izx,       6), // EOR  X,ind
-        /* 42 */ InstructionDetail(Operation::JAM,  AddressingMode::Implied,   2), // JAM
-        /* 43 */ InstructionDetail(Operation::SRE,  AddressingMode::Izx,       8), // SRE  X,ind
-        /* 44 */ InstructionDetail(Operation::NOP_, AddressingMode::Zp0,       3), // NOP  zpg
-        /* 45 */ InstructionDetail(Operation::EOR,  AddressingMode::Zp0,       3), // EOR  zpg
-        /* 46 */ InstructionDetail(Operation::LSR,  AddressingMode::Zp0,       5), // LSR  zpg
-        /* 47 */ InstructionDetail(Operation::SRE,  AddressingMode::Zp0,       5), // SRE  zpg
-        /* 48 */ InstructionDetail(Operation::PHA,  AddressingMode::Implied,   3), // PHA  impl
-        /* 49 */ InstructionDetail(Operation::EOR,  AddressingMode::Immediate, 2), // EOR  #
-        /* 4A */ InstructionDetail(Operation::LSR,  AddressingMode::Implied,   2), // LSR  A
-        /* 4B */ InstructionDetail(Operation::ALR,  AddressingMode::Immediate, 2), // ALR  #
-        /* 4C */ InstructionDetail(Operation::JMP,  AddressingMode::Absolute,  3), // JMP  abs
-        /* 4D */ InstructionDetail(Operation::EOR,  AddressingMode::Absolute,  4), // EOR  abs
-        /* 4E */ InstructionDetail(Operation::LSR,  AddressingMode::Absolute,  6), // LSR  abs
-        /* 4F */ InstructionDetail(Operation::SRE,  AddressingMode::Absolute,  6), // SRE  abs
-        /* 50 */ InstructionDetail(Operation::BVC,  AddressingMode::Relative,  2), // BVC  rel
-        /* 51 */ InstructionDetail(Operation::EOR,  AddressingMode::Izy,       5), // EOR  ind,Y
-        /* 52 */ InstructionDetail(Operation::JAM,  AddressingMode::Implied,   2), // JAM
-        /* 53 */ InstructionDetail(Operation::SRE,  AddressingMode::Izy,       8), // SRE  ind,Y
-        /* 54 */ InstructionDetail(Operation::NOP_, AddressingMode::Zpx,       4), // NOP  zpg,X
-        /* 55 */ InstructionDetail(Operation::EOR,  AddressingMode::Zpx,       4), // EOR  zpg,X
-        /* 56 */ InstructionDetail(Operation::LSR,  AddressingMode::Zpx,       6), // LSR  zpg,X
-        /* 57 */ InstructionDetail(Operation::SRE,  AddressingMode::Zpx,       6), // SRE  zpg,X
-        /* 58 */ InstructionDetail(Operation::CLI,  AddressingMode::Implied,   2), // CLI  impl
-        /* 59 */ InstructionDetail(Operation::EOR,  AddressingMode::Aby,       4), // EOR  abs,Y
-        /* 5A */ InstructionDetail(Operation::NOP_, AddressingMode::Implied,   2), // NOP  impl
-        /* 5B */ InstructionDetail(Operation::SRE,  AddressingMode::Aby,       7), // SRE  abs,Y
-        /* 5C */ InstructionDetail(Operation::NOP_, AddressingMode::Abx,       4), // NOP  abs,X
-        /* 5D */ InstructionDetail(Operation::EOR,  AddressingMode::Abx,       4), // EOR  abs,X
-        /* 5E */ InstructionDetail(Operation::LSR,  AddressingMode::Abx,       7), // LSR  abs,X
-        /* 5F */ InstructionDetail(Operation::SRE,  AddressingMode::Abx,       7), // SRE  abs,X
-        /* 60 */ InstructionDetail(Operation::RTS,  AddressingMode::Implied,   6), // RTS  impl
-        /* 61 */ InstructionDetail(Operation::ADC,  AddressingMode::Izx,       6), // ADC  X,ind
-        /* 62 */ InstructionDetail(Operation::JAM,  AddressingMode::Implied,   2), // JAM
-        /* 63 */ InstructionDetail(Operation::RRA,  AddressingMode::Izx,       8), // RRA  X,ind
-        /* 64 */ InstructionDetail(Operation::NOP_, AddressingMode::Zp0,       3), // NOP  zpg
-        /* 65 */ InstructionDetail(Operation::ADC,  AddressingMode::Zp0,       3), // ADC  zpg
-        /* 66 */ InstructionDetail(Operation::ROR,  AddressingMode::Zp0,       5), // ROR  zpg
-        /* 67 */ InstructionDetail(Operation::RRA,  AddressingMode::Zp0,       5), // RRA  zpg
-        /* 68 */ InstructionDetail(Operation::PLA,  AddressingMode::Implied,   4), // PLA  impl
-        /* 69 */ InstructionDetail(Operation::ADC,  AddressingMode::Immediate, 2), // ADC  #
-        /* 6A */ InstructionDetail(Operation::ROR,  AddressingMode::Implied,   2), // ROR  A
-        /* 6B */ InstructionDetail(Operation::ARR,  AddressingMode::Immediate, 2), // ARR  #
-        /* 6C */ InstructionDetail(Operation::JMP,  AddressingMode::Indirect,  5), // JMP  ind
-        /* 6D */ InstructionDetail(Operation::ADC,  AddressingMode::Absolute,  4), // ADC  abs
-        /* 6E */ InstructionDetail(Operation::ROR,  AddressingMode::Absolute,  6), // ROR  abs
-        /* 6F */ InstructionDetail(Operation::RRA,  AddressingMode::Absolute,  6), // RRA  abs
-        /* 70 */ InstructionDetail(Operation::BVS,  AddressingMode::Relative,  2), // BVS  rel
-        /* 71 */ InstructionDetail(Operation::ADC,  AddressingMode::Izy,       5), // ADC  ind,Y
-        /* 72 */ InstructionDetail(Operation::JAM,  AddressingMode::Implied,   2), // JAM
-        /* 73 */ InstructionDetail(Operation::RRA,  AddressingMode::Izy,       8), // RRA  ind,Y
-        /* 74 */ InstructionDetail(Operation::NOP_, AddressingMode::Zpx,       4), // NOP  zpg,X
-        /* 75 */ InstructionDetail(Operation::ADC,  AddressingMode::Zpx,       4), // ADC  zpg,X
-        /* 76 */ InstructionDetail(Operation::ROR,  AddressingMode::Zpx,       6), // ROR  zpg,X
-        /* 77 */ InstructionDetail(Operation::RRA,  AddressingMode::Zpx,       6), // RRA  zpg,X
-        /* 78 */ InstructionDetail(Operation::SEI,  AddressingMode::Implied,   2), // SEI  impl
-        /* 79 */ InstructionDetail(Operation::ADC,  AddressingMode::Aby,       4), // ADC  abs,Y
-        /* 7A */ InstructionDetail(Operation::NOP_, AddressingMode::Implied,   2), // NOP  impl
-        /* 7B */ InstructionDetail(Operation::RRA,  AddressingMode::Aby,       7), // RRA  abs,Y
-        /* 7C */ InstructionDetail(Operation::NOP_, AddressingMode::Abx,       4), // NOP  abs,X
-        /* 7D */ InstructionDetail(Operation::ADC,  AddressingMode::Abx,       4), // ADC  abs,X
-        /* 7E */ InstructionDetail(Operation::ROR,  AddressingMode::Abx,       7), // ROR  abs,X
-        /* 7F */ InstructionDetail(Operation::RRA,  AddressingMode::Abx,       7), // RRA  abs,X
-        /* 80 */ InstructionDetail(Operation::NOP_, AddressingMode::Immediate, 2), // NOP  #
-        /* 81 */ InstructionDetail(Operation::STA,  AddressingMode::Izx,       6), // STA  X,ind
-        /* 82 */ InstructionDetail(Operation::NOP_, AddressingMode::Immediate, 2), // NOP  #
-        /* 83 */ InstructionDetail(Operation::SAX,  AddressingMode::Izx,       6), // SAX  X,ind
-        /* 84 */ InstructionDetail(Operation::STY,  AddressingMode::Zp0,       3), // STY  zpg
-        /* 85 */ InstructionDetail(Operation::STA,  AddressingMode::Zp0,       3), // STA  zpg
-        /* 86 */ InstructionDetail(Operation::STX,  AddressingMode::Zp0,       3), // STX  zpg
-        /* 87 */ InstructionDetail(Operation::SAX,  AddressingMode::Zp0,       3), // SAX  zpg
-        /* 88 */ InstructionDetail(Operation::DEY,  AddressingMode::Implied,   2), // DEY  impl
-        /* 89 */ InstructionDetail(Operation::NOP_, AddressingMode::Immediate, 2), // NOP  #
-        /* 8A */ InstructionDetail(Operation::TXA,  AddressingMode::Implied,   2), // TXA  impl
-        /* 8B */ InstructionDetail(Operation::ANE,  AddressingMode::Immediate, 2), // ANE  #
-        /* 8C */ InstructionDetail(Operation::STY,  AddressingMode::Absolute,  4), // STY  abs
-        /* 8D */ InstructionDetail(Operation::STA,  AddressingMode::Absolute,  4), // STA  abs
-        /* 8E */ InstructionDetail(Operation::STX,  AddressingMode::Absolute,  4), // STX  abs
-        /* 8F */ InstructionDetail(Operation::SAX,  AddressingMode::Absolute,  4), // SAX  abs
-        /* 90 */ InstructionDetail(Operation::BCC,  AddressingMode::Relative,  2), // BCC  rel
-        /* 91 */ InstructionDetail(Operation::STA,  AddressingMode::Izy,       6), // STA  ind,Y
-        /* 92 */ InstructionDetail(Operation::JAM,  AddressingMode::Implied,   2), // JAM
-        /* 93 */ InstructionDetail(Operation::SHA,  AddressingMode::Izy,       6), // SHA  ind,Y
-        /* 94 */ InstructionDetail(Operation::STY,  AddressingMode::Zpx,       4), // STY  zpg,X
-        /* 95 */ InstructionDetail(Operation::STA,  AddressingMode::Zpx,       4), // STA  zpg,X
-        /* 96 */ InstructionDetail(Operation::STX,  AddressingMode::Zpy,       4), // STX  zpg,Y
-        /* 97 */ InstructionDetail(Operation::SAX,  AddressingMode::Zpy,       4), // SAX  zpg,Y
-        /* 98 */ InstructionDetail(Operation::TYA,  AddressingMode::Implied,   2), // TYA  impl
-        /* 99 */ InstructionDetail(Operation::STA,  AddressingMode::Aby,       5), // STA  abs,Y
-        /* 9A */ InstructionDetail(Operation::TXS,  AddressingMode::Implied,   2), // TXS  impl
-        /* 9B */ InstructionDetail(Operation::TAS,  AddressingMode::Aby,       5), // TAS  abs,Y
-        /* 9C */ InstructionDetail(Operation::SHY,  AddressingMode::Abx,       5), // SHY  abs,X
-        /* 9D */ InstructionDetail(Operation::STA,  AddressingMode::Abx,       5), // STA  abs,X
-        /* 9E */ InstructionDetail(Operation::SHX,  AddressingMode::Aby,       5), // SHX  abs,Y
-        /* 9F */ InstructionDetail(Operation::SHA,  AddressingMode::Aby,       5), // SHA  abs,Y
-        /* A0 */ InstructionDetail(Operation::LDY,  AddressingMode::Immediate, 2), // LDY  #
-        /* A1 */ InstructionDetail(Operation::LDA,  AddressingMode::Izx,       6), // LDA  X,ind
-        /* A2 */ InstructionDetail(Operation::LDX,  AddressingMode::Immediate, 2), // LDX  #
-        /* A3 */ InstructionDetail(Operation::LAX,  AddressingMode::Izx,       6), // LAX  X,ind
-        /* A4 */ InstructionDetail(Operation::LDY,  AddressingMode::Zp0,       3), // LDY  zpg
-        /* A5 */ InstructionDetail(Operation::LDA,  AddressingMode::Zp0,       3), // LDA  zpg
-        /* A6 */ InstructionDetail(Operation::LDX,  AddressingMode::Zp0,       3), // LDX  zpg
-        /* A7 */ InstructionDetail(Operation::LAX,  AddressingMode::Zp0,       3), // LAX  zpg
-        /* A8 */ InstructionDetail(Operation::TAY,  AddressingMode::Implied,   2), // TAY  impl
-        /* A9 */ InstructionDetail(Operation::LDA,  AddressingMode::Immediate, 2), // LDA  #
-        /* AA */ InstructionDetail(Operation::TAX,  AddressingMode::Implied,   2), // TAX  impl
-        /* AB */ InstructionDetail(Operation::LXA,  AddressingMode::Immediate, 2), // LXA  #
-        /* AC */ InstructionDetail(Operation::LDY,  AddressingMode::Absolute,  4), // LDY  abs
-        /* AD */ InstructionDetail(Operation::LDA,  AddressingMode::Absolute,  4), // LDA  abs
-        /* AE */ InstructionDetail(Operation::LDX,  AddressingMode::Absolute,  4), // LDX  abs
-        /* AF */ InstructionDetail(Operation::LAX,  AddressingMode::Absolute,  4), // LAX  abs
-        /* B0 */ InstructionDetail(Operation::BCS,  AddressingMode::Relative,  2), // BCS  rel
-        /* B1 */ InstructionDetail(Operation::LDA,  AddressingMode::Izy,       5), // LDA  ind,Y
-        /* B2 */ InstructionDetail(Operation::JAM,  AddressingMode::Implied,   2), // JAM
-        /* B3 */ InstructionDetail(Operation::LAX,  AddressingMode::Izy,       5), // LAX  ind,Y
-        /* B4 */ InstructionDetail(Operation::LDY,  AddressingMode::Zpx,       4), // LDY  zpg,X
-        /* B5 */ InstructionDetail(Operation::LDA,  AddressingMode::Zpx,       4), // LDA  zpg,X
-        /* B6 */ InstructionDetail(Operation::LDX,  AddressingMode::Zpy,       4), // LDX  zpg,Y
-        /* B7 */ InstructionDetail(Operation::LAX,  AddressingMode::Zpy,       4), // LAX  zpg,Y
-        /* B8 */ InstructionDetail(Operation::CLV,  AddressingMode::Implied,   2), // CLV  impl
-        /* B9 */ InstructionDetail(Operation::LDA,  AddressingMode::Aby,       4), // LDA  abs,Y
-        /* BA */ InstructionDetail(Operation::TSX,  AddressingMode::Implied,   2), // TSX  impl
-        /* BB */ InstructionDetail(Operation::LAS,  AddressingMode::Aby,       4), // LAS  abs,Y
-        /* BC */ InstructionDetail(Operation::LDY,  AddressingMode::Abx,       4), // LDY  abs,X
-        /* BD */ InstructionDetail(Operation::LDA,  AddressingMode::Abx,       4), // LDA  abs,X
-        /* BE */ InstructionDetail(Operation::LDX,  AddressingMode::Aby,       4), // LDX  abs,Y
-        /* BF */ InstructionDetail(Operation::LAX,  AddressingMode::Aby,       4), // LAX  abs,Y
-        /* C0 */ InstructionDetail(Operation::CPY,  AddressingMode::Immediate, 2), // CPY  #
-        /* C1 */ InstructionDetail(Operation::CMP,  AddressingMode::Izx,       6), // CMP  X,ind
-        /* C2 */ InstructionDetail(Operation::NOP_, AddressingMode::Immediate, 2), // NOP  #
-        /* C3 */ InstructionDetail(Operation::DCP,  AddressingMode::Izx,       8), // DCP  X,ind
-        /* C4 */ InstructionDetail(Operation::CPY,  AddressingMode::Zp0,       3), // CPY  zpg
-        /* C5 */ InstructionDetail(Operation::CMP,  AddressingMode::Zp0,       3), // CMP  zpg
-        /* C6 */ InstructionDetail(Operation::DEC,  AddressingMode::Zp0,       5), // DEC  zpg
-        /* C7 */ InstructionDetail(Operation::DCP,  AddressingMode::Zp0,       5), // DCP  zpg
-        /* C8 */ InstructionDetail(Operation::INY,  AddressingMode::Implied,   2), // INY  impl
-        /* C9 */ InstructionDetail(Operation::CMP,  AddressingMode::Immediate, 2), // CMP  #
-        /* CA */ InstructionDetail(Operation::DEX,  AddressingMode::Implied,   2), // DEX  impl
-        /* CB */ InstructionDetail(Operation::SBX,  AddressingMode::Immediate, 2), // SBX  #
-        /* CC */ InstructionDetail(Operation::CPY,  AddressingMode::Absolute,  4), // CPY  abs
-        /* CD */ InstructionDetail(Operation::CMP,  AddressingMode::Absolute,  4), // CMP  abs
-        /* CE */ InstructionDetail(Operation::DEC,  AddressingMode::Absolute,  6), // DEC  abs
-        /* CF */ InstructionDetail(Operation::DCP,  AddressingMode::Absolute,  6), // DCP  abs
-        /* D0 */ InstructionDetail(Operation::BNE,  AddressingMode::Relative,  2), // BNE  rel
-        /* D1 */ InstructionDetail(Operation::CMP,  AddressingMode::Izy,       5), // CMP  ind,Y
-        /* D2 */ InstructionDetail(Operation::JAM,  AddressingMode::Implied,   2), // JAM
-        /* D3 */ InstructionDetail(Operation::DCP,  AddressingMode::Izy,       8), // DCP  ind,Y
-        /* D4 */ InstructionDetail(Operation::NOP_, AddressingMode::Zpx,       4), // NOP  zpg,X
-        /* D5 */ InstructionDetail(Operation::CMP,  AddressingMode::Zpx,       4), // CMP  zpg,X
-        /* D6 */ InstructionDetail(Operation::DEC,  AddressingMode::Zpx,       6), // DEC  zpg,X
-        /* D7 */ InstructionDetail(Operation::DCP,  AddressingMode::Zpx,       6), // DCP  zpg,X
-        /* D8 */ InstructionDetail(Operation::CLD,  AddressingMode::Implied,   2), // CLD  impl
-        /* D9 */ InstructionDetail(Operation::CMP,  AddressingMode::Aby,       4), // CMP  abs,Y
-        /* DA */ InstructionDetail(Operation::NOP_, AddressingMode::Implied,   2), // NOP  impl
-        /* DB */ InstructionDetail(Operation::DCP,  AddressingMode::Aby,       7), // DCP  abs,Y
-        /* DC */ InstructionDetail(Operation::NOP_, AddressingMode::Abx,       4), // NOP  abs,X
-        /* DD */ InstructionDetail(Operation::CMP,  AddressingMode::Abx,       4), // CMP  abs,X
-        /* DE */ InstructionDetail(Operation::DEC,  AddressingMode::Abx,       7), // DEC  abs,X
-        /* DF */ InstructionDetail(Operation::DCP,  AddressingMode::Abx,       7), // DCP  abs,X
-        /* E0 */ InstructionDetail(Operation::CPX,  AddressingMode::Immediate, 2), // CPX  #
-        /* E1 */ InstructionDetail(Operation::SBC,  AddressingMode::Izx,       6), // SBC  X,ind
-        /* E2 */ InstructionDetail(Operation::NOP_, AddressingMode::Immediate, 2), // NOP  #
-        /* E3 */ InstructionDetail(Operation::ISC,  AddressingMode::Izx,       8), // ISC  X,ind
-        /* E4 */ InstructionDetail(Operation::CPX,  AddressingMode::Zp0,       3), // CPX  zpg
-        /* E5 */ InstructionDetail(Operation::SBC,  AddressingMode::Zp0,       3), // SBC  zpg
-        /* E6 */ InstructionDetail(Operation::INC,  AddressingMode::Zp0,       5), // INC  zpg
-        /* E7 */ InstructionDetail(Operation::ISC,  AddressingMode::Zp0,       5), // ISC  zpg
-        /* E8 */ InstructionDetail(Operation::INX,  AddressingMode::Implied,   2), // INX  impl
-        /* E9 */ InstructionDetail(Operation::SBC,  AddressingMode::Immediate, 2), // SBC  #
-        /* EA */ InstructionDetail(Operation::NOP,  AddressingMode::Implied,   2), // NOP  impl
-        /* EB */ InstructionDetail(Operation::USB,  AddressingMode::Immediate, 2), // USBC #
-        /* EC */ InstructionDetail(Operation::CPX,  AddressingMode::Absolute,  4), // CPX  abs
-        /* ED */ InstructionDetail(Operation::SBC,  AddressingMode::Absolute,  4), // SBC  abs
-        /* EE */ InstructionDetail(Operation::INC,  AddressingMode::Absolute,  6), // INC  abs
-        /* EF */ InstructionDetail(Operation::ISC,  AddressingMode::Absolute,  6), // ISC  abs
-        /* F0 */ InstructionDetail(Operation::BEQ,  AddressingMode::Relative,  2), // BEQ  rel
-        /* F1 */ InstructionDetail(Operation::SBC,  AddressingMode::Izy,       5), // SBC  ind,Y
-        /* F2 */ InstructionDetail(Operation::JAM,  AddressingMode::Implied,   2), // JAM
-        /* F3 */ InstructionDetail(Operation::ISC,  AddressingMode::Izy,       8), // ISC  ind,Y
-        /* F4 */ InstructionDetail(Operation::NOP_, AddressingMode::Zpx,       4), // NOP  zpg,X
-        /* F5 */ InstructionDetail(Operation::SBC,  AddressingMode::Zpx,       4), // SBC  zpg,X
-        /* F6 */ InstructionDetail(Operation::INC,  AddressingMode::Zpx,       6), // INC  zpg,X
-        /* F7 */ InstructionDetail(Operation::ISC,  AddressingMode::Zpx,       6), // ISC  zpg,X
-        /* F8 */ InstructionDetail(Operation::SED,  AddressingMode::Implied,   2), // SED  impl
-        /* F9 */ InstructionDetail(Operation::SBC,  AddressingMode::Aby,       4), // SBC  abs,Y
-        /* FA */ InstructionDetail(Operation::NOP_, AddressingMode::Implied,   2), // NOP  impl
-        /* FB */ InstructionDetail(Operation::ISC,  AddressingMode::Aby,       7), // ISC  abs,Y
-        /* FC */ InstructionDetail(Operation::NOP_, AddressingMode::Abx,       4), // NOP  abs,X
-        /* FD */ InstructionDetail(Operation::SBC,  AddressingMode::Abx,       4), // SBC  abs,X
-        /* FE */ InstructionDetail(Operation::INC,  AddressingMode::Abx,       7), // INC  abs,X
-        /* FF */ InstructionDetail(Operation::ISC,  AddressingMode::Abx,       7), // ISC  abs,X
+        /* 00 */ id(Operation::BRK, AddressingMode::Implied,   7, true ), // BRK  impl
+        /* 01 */ id(Operation::ORA, AddressingMode::Izx,       6, true ), // ORA  X,ind
+        /* 02 */ id(Operation::JAM, AddressingMode::Implied,   2, false), // JAM
+        /* 03 */ id(Operation::SLO, AddressingMode::Izx,       8, false), // SLO  X,ind
+        /* 04 */ id(Operation::NOP, AddressingMode::Zp0,       3, false), // NOP  zpg
+        /* 05 */ id(Operation::ORA, AddressingMode::Zp0,       3, true ), // ORA  zpg
+        /* 06 */ id(Operation::ASL, AddressingMode::Zp0,       5, true ), // ASL  zpg
+        /* 07 */ id(Operation::SLO, AddressingMode::Zp0,       5, false), // SLO  zpg
+        /* 08 */ id(Operation::PHP, AddressingMode::Implied,   3, true ), // PHP  impl
+        /* 09 */ id(Operation::ORA, AddressingMode::Immediate, 2, true ), // ORA  #
+        /* 0A */ id(Operation::ASL, AddressingMode::Implied,   2, true ), // ASL  A
+        /* 0B */ id(Operation::ANC, AddressingMode::Immediate, 2, false), // ANC  #
+        /* 0C */ id(Operation::NOP, AddressingMode::Absolute,  4, false), // NOP  abs
+        /* 0D */ id(Operation::ORA, AddressingMode::Absolute,  4, true ), // ORA  abs
+        /* 0E */ id(Operation::ASL, AddressingMode::Absolute,  6, true ), // ASL  abs
+        /* 0F */ id(Operation::SLO, AddressingMode::Absolute,  6, false), // SLO  abs
+        /* 10 */ id(Operation::BPL, AddressingMode::Relative,  2, true ), // BPL  rel
+        /* 11 */ id(Operation::ORA, AddressingMode::Izy,       5, true ), // ORA  ind,Y
+        /* 12 */ id(Operation::JAM, AddressingMode::Implied,   2, false), // JAM
+        /* 13 */ id(Operation::SLO, AddressingMode::Izy,       8, false), // SLO  ind,Y
+        /* 14 */ id(Operation::NOP, AddressingMode::Zpx,       4, false), // NOP  zpg,X
+        /* 15 */ id(Operation::ORA, AddressingMode::Zpx,       4, true ), // ORA  zpg,X
+        /* 16 */ id(Operation::ASL, AddressingMode::Zpx,       6, true ), // ASL  zpg,X
+        /* 17 */ id(Operation::SLO, AddressingMode::Zpx,       6, false), // SLO  zpg,X
+        /* 18 */ id(Operation::CLC, AddressingMode::Implied,   2, true ), // CLC  impl
+        /* 19 */ id(Operation::ORA, AddressingMode::Aby,       4, true ), // ORA  abs,Y
+        /* 1A */ id(Operation::NOP, AddressingMode::Implied,   2, false), // NOP  impl
+        /* 1B */ id(Operation::SLO, AddressingMode::Aby,       7, false), // SLO  abs,Y
+        /* 1C */ id(Operation::NOP, AddressingMode::Abx,       4, false), // NOP  abs,X
+        /* 1D */ id(Operation::ORA, AddressingMode::Abx,       4, true ), // ORA  abs,X
+        /* 1E */ id(Operation::ASL, AddressingMode::Abx,       7, true ), // ASL  abs,X
+        /* 1F */ id(Operation::SLO, AddressingMode::Abx,       7, false), // SLO  abs,X
+        /* 20 */ id(Operation::JSR, AddressingMode::Absolute,  6, true ), // JSR  abs
+        /* 21 */ id(Operation::AND, AddressingMode::Izx,       6, true ), // AND  X,ind
+        /* 22 */ id(Operation::JAM, AddressingMode::Implied,   2, false), // JAM
+        /* 23 */ id(Operation::RLA, AddressingMode::Izx,       8, false), // RLA  X,ind
+        /* 24 */ id(Operation::BIT, AddressingMode::Zp0,       3, true ), // BIT  zpg
+        /* 25 */ id(Operation::AND, AddressingMode::Zp0,       3, true ), // AND  zpg
+        /* 26 */ id(Operation::ROL, AddressingMode::Zp0,       5, true ), // ROL  zpg
+        /* 27 */ id(Operation::RLA, AddressingMode::Zp0,       5, false), // RLA  zpg
+        /* 28 */ id(Operation::PLP, AddressingMode::Implied,   4, true ), // PLP  impl
+        /* 29 */ id(Operation::AND, AddressingMode::Immediate, 2, true ), // AND  #
+        /* 2A */ id(Operation::ROL, AddressingMode::Implied,   2, true ), // ROL  A
+        /* 2B */ id(Operation::ANC, AddressingMode::Immediate, 2, false), // ANC  #
+        /* 2C */ id(Operation::BIT, AddressingMode::Absolute,  4, true ), // BIT  abs
+        /* 2D */ id(Operation::AND, AddressingMode::Absolute,  4, true ), // AND  abs
+        /* 2E */ id(Operation::ROL, AddressingMode::Absolute,  6, true ), // ROL  abs
+        /* 2F */ id(Operation::RLA, AddressingMode::Absolute,  6, false), // RLA  abs
+        /* 30 */ id(Operation::BMI, AddressingMode::Relative,  2, true ), // BMI  rel
+        /* 31 */ id(Operation::AND, AddressingMode::Izy,       5, true ), // AND  ind,Y
+        /* 32 */ id(Operation::JAM, AddressingMode::Implied,   2, false), // JAM
+        /* 33 */ id(Operation::RLA, AddressingMode::Izy,       8, false), // RLA  ind,Y
+        /* 34 */ id(Operation::NOP, AddressingMode::Zpx,       4, false), // NOP  zpg,X
+        /* 35 */ id(Operation::AND, AddressingMode::Zpx,       4, true ), // AND  zpg,X
+        /* 36 */ id(Operation::ROL, AddressingMode::Zpx,       6, true ), // ROL  zpg,X
+        /* 37 */ id(Operation::RLA, AddressingMode::Zpx,       6, false), // RLA  zpg,X
+        /* 38 */ id(Operation::SEC, AddressingMode::Implied,   2, true ), // SEC  impl
+        /* 39 */ id(Operation::AND, AddressingMode::Aby,       4, true ), // AND  abs,Y
+        /* 3A */ id(Operation::NOP, AddressingMode::Implied,   2, false), // NOP  impl
+        /* 3B */ id(Operation::RLA, AddressingMode::Aby,       7, false), // RLA  abs,Y
+        /* 3C */ id(Operation::NOP, AddressingMode::Abx,       4, false), // NOP  abs,X
+        /* 3D */ id(Operation::AND, AddressingMode::Abx,       4, true ), // AND  abs,X
+        /* 3E */ id(Operation::ROL, AddressingMode::Abx,       7, true ), // ROL  abs,X
+        /* 3F */ id(Operation::RLA, AddressingMode::Abx,       7, false), // RLA  abs,X
+        /* 40 */ id(Operation::RTI, AddressingMode::Implied,   6, true ), // RTI  impl
+        /* 41 */ id(Operation::EOR, AddressingMode::Izx,       6, true ), // EOR  X,ind
+        /* 42 */ id(Operation::JAM, AddressingMode::Implied,   2, false), // JAM
+        /* 43 */ id(Operation::SRE, AddressingMode::Izx,       8, false), // SRE  X,ind
+        /* 44 */ id(Operation::NOP, AddressingMode::Zp0,       3, false), // NOP  zpg
+        /* 45 */ id(Operation::EOR, AddressingMode::Zp0,       3, true ), // EOR  zpg
+        /* 46 */ id(Operation::LSR, AddressingMode::Zp0,       5, true ), // LSR  zpg
+        /* 47 */ id(Operation::SRE, AddressingMode::Zp0,       5, false), // SRE  zpg
+        /* 48 */ id(Operation::PHA, AddressingMode::Implied,   3, true ), // PHA  impl
+        /* 49 */ id(Operation::EOR, AddressingMode::Immediate, 2, true ), // EOR  #
+        /* 4A */ id(Operation::LSR, AddressingMode::Implied,   2, true ), // LSR  A
+        /* 4B */ id(Operation::ALR, AddressingMode::Immediate, 2, false), // ALR  #
+        /* 4C */ id(Operation::JMP, AddressingMode::Absolute,  3, true ), // JMP  abs
+        /* 4D */ id(Operation::EOR, AddressingMode::Absolute,  4, true ), // EOR  abs
+        /* 4E */ id(Operation::LSR, AddressingMode::Absolute,  6, true ), // LSR  abs
+        /* 4F */ id(Operation::SRE, AddressingMode::Absolute,  6, false), // SRE  abs
+        /* 50 */ id(Operation::BVC, AddressingMode::Relative,  2, true ), // BVC  rel
+        /* 51 */ id(Operation::EOR, AddressingMode::Izy,       5, true ), // EOR  ind,Y
+        /* 52 */ id(Operation::JAM, AddressingMode::Implied,   2, false), // JAM
+        /* 53 */ id(Operation::SRE, AddressingMode::Izy,       8, false), // SRE  ind,Y
+        /* 54 */ id(Operation::NOP, AddressingMode::Zpx,       4, false), // NOP  zpg,X
+        /* 55 */ id(Operation::EOR, AddressingMode::Zpx,       4, true ), // EOR  zpg,X
+        /* 56 */ id(Operation::LSR, AddressingMode::Zpx,       6, true ), // LSR  zpg,X
+        /* 57 */ id(Operation::SRE, AddressingMode::Zpx,       6, false), // SRE  zpg,X
+        /* 58 */ id(Operation::CLI, AddressingMode::Implied,   2, true ), // CLI  impl
+        /* 59 */ id(Operation::EOR, AddressingMode::Aby,       4, true ), // EOR  abs,Y
+        /* 5A */ id(Operation::NOP, AddressingMode::Implied,   2, false), // NOP  impl
+        /* 5B */ id(Operation::SRE, AddressingMode::Aby,       7, false), // SRE  abs,Y
+        /* 5C */ id(Operation::NOP, AddressingMode::Abx,       4, false), // NOP  abs,X
+        /* 5D */ id(Operation::EOR, AddressingMode::Abx,       4, true ), // EOR  abs,X
+        /* 5E */ id(Operation::LSR, AddressingMode::Abx,       7, true ), // LSR  abs,X
+        /* 5F */ id(Operation::SRE, AddressingMode::Abx,       7, false), // SRE  abs,X
+        /* 60 */ id(Operation::RTS, AddressingMode::Implied,   6, true ), // RTS  impl
+        /* 61 */ id(Operation::ADC, AddressingMode::Izx,       6, true ), // ADC  X,ind
+        /* 62 */ id(Operation::JAM, AddressingMode::Implied,   2, false), // JAM
+        /* 63 */ id(Operation::RRA, AddressingMode::Izx,       8, false), // RRA  X,ind
+        /* 64 */ id(Operation::NOP, AddressingMode::Zp0,       3, false), // NOP  zpg
+        /* 65 */ id(Operation::ADC, AddressingMode::Zp0,       3, true ), // ADC  zpg
+        /* 66 */ id(Operation::ROR, AddressingMode::Zp0,       5, true ), // ROR  zpg
+        /* 67 */ id(Operation::RRA, AddressingMode::Zp0,       5, false), // RRA  zpg
+        /* 68 */ id(Operation::PLA, AddressingMode::Implied,   4, true ), // PLA  impl
+        /* 69 */ id(Operation::ADC, AddressingMode::Immediate, 2, true ), // ADC  #
+        /* 6A */ id(Operation::ROR, AddressingMode::Implied,   2, true ), // ROR  A
+        /* 6B */ id(Operation::ARR, AddressingMode::Immediate, 2, false), // ARR  #
+        /* 6C */ id(Operation::JMP, AddressingMode::Indirect,  5, true ), // JMP  ind
+        /* 6D */ id(Operation::ADC, AddressingMode::Absolute,  4, true ), // ADC  abs
+        /* 6E */ id(Operation::ROR, AddressingMode::Absolute,  6, true ), // ROR  abs
+        /* 6F */ id(Operation::RRA, AddressingMode::Absolute,  6, false), // RRA  abs
+        /* 70 */ id(Operation::BVS, AddressingMode::Relative,  2, true ), // BVS  rel
+        /* 71 */ id(Operation::ADC, AddressingMode::Izy,       5, true ), // ADC  ind,Y
+        /* 72 */ id(Operation::JAM, AddressingMode::Implied,   2, false), // JAM
+        /* 73 */ id(Operation::RRA, AddressingMode::Izy,       8, false), // RRA  ind,Y
+        /* 74 */ id(Operation::NOP, AddressingMode::Zpx,       4, false), // NOP  zpg,X
+        /* 75 */ id(Operation::ADC, AddressingMode::Zpx,       4, true ), // ADC  zpg,X
+        /* 76 */ id(Operation::ROR, AddressingMode::Zpx,       6, true ), // ROR  zpg,X
+        /* 77 */ id(Operation::RRA, AddressingMode::Zpx,       6, false), // RRA  zpg,X
+        /* 78 */ id(Operation::SEI, AddressingMode::Implied,   2, true ), // SEI  impl
+        /* 79 */ id(Operation::ADC, AddressingMode::Aby,       4, true ), // ADC  abs,Y
+        /* 7A */ id(Operation::NOP, AddressingMode::Implied,   2, false), // NOP  impl
+        /* 7B */ id(Operation::RRA, AddressingMode::Aby,       7, false), // RRA  abs,Y
+        /* 7C */ id(Operation::NOP, AddressingMode::Abx,       4, false), // NOP  abs,X
+        /* 7D */ id(Operation::ADC, AddressingMode::Abx,       4, true ), // ADC  abs,X
+        /* 7E */ id(Operation::ROR, AddressingMode::Abx,       7, true ), // ROR  abs,X
+        /* 7F */ id(Operation::RRA, AddressingMode::Abx,       7, false), // RRA  abs,X
+        /* 80 */ id(Operation::NOP, AddressingMode::Immediate, 2, false), // NOP  #
+        /* 81 */ id(Operation::STA, AddressingMode::Izx,       6, true ), // STA  X,ind
+        /* 82 */ id(Operation::NOP, AddressingMode::Immediate, 2, false), // NOP  #
+        /* 83 */ id(Operation::SAX, AddressingMode::Izx,       6, false), // SAX  X,ind
+        /* 84 */ id(Operation::STY, AddressingMode::Zp0,       3, true ), // STY  zpg
+        /* 85 */ id(Operation::STA, AddressingMode::Zp0,       3, true ), // STA  zpg
+        /* 86 */ id(Operation::STX, AddressingMode::Zp0,       3, true ), // STX  zpg
+        /* 87 */ id(Operation::SAX, AddressingMode::Zp0,       3, false), // SAX  zpg
+        /* 88 */ id(Operation::DEY, AddressingMode::Implied,   2, true ), // DEY  impl
+        /* 89 */ id(Operation::NOP, AddressingMode::Immediate, 2, false), // NOP  #
+        /* 8A */ id(Operation::TXA, AddressingMode::Implied,   2, true ), // TXA  impl
+        /* 8B */ id(Operation::ANE, AddressingMode::Immediate, 2, false), // ANE  #
+        /* 8C */ id(Operation::STY, AddressingMode::Absolute,  4, true ), // STY  abs
+        /* 8D */ id(Operation::STA, AddressingMode::Absolute,  4, true ), // STA  abs
+        /* 8E */ id(Operation::STX, AddressingMode::Absolute,  4, true ), // STX  abs
+        /* 8F */ id(Operation::SAX, AddressingMode::Absolute,  4, false), // SAX  abs
+        /* 90 */ id(Operation::BCC, AddressingMode::Relative,  2, true ), // BCC  rel
+        /* 91 */ id(Operation::STA, AddressingMode::Izy,       6, true ), // STA  ind,Y
+        /* 92 */ id(Operation::JAM, AddressingMode::Implied,   2, false), // JAM
+        /* 93 */ id(Operation::SHA, AddressingMode::Izy,       6, false), // SHA  ind,Y
+        /* 94 */ id(Operation::STY, AddressingMode::Zpx,       4, true ), // STY  zpg,X
+        /* 95 */ id(Operation::STA, AddressingMode::Zpx,       4, true ), // STA  zpg,X
+        /* 96 */ id(Operation::STX, AddressingMode::Zpy,       4, true ), // STX  zpg,Y
+        /* 97 */ id(Operation::SAX, AddressingMode::Zpy,       4, false), // SAX  zpg,Y
+        /* 98 */ id(Operation::TYA, AddressingMode::Implied,   2, true ), // TYA  impl
+        /* 99 */ id(Operation::STA, AddressingMode::Aby,       5, true ), // STA  abs,Y
+        /* 9A */ id(Operation::TXS, AddressingMode::Implied,   2, true ), // TXS  impl
+        /* 9B */ id(Operation::TAS, AddressingMode::Aby,       5, false), // TAS  abs,Y
+        /* 9C */ id(Operation::SHY, AddressingMode::Abx,       5, false), // SHY  abs,X
+        /* 9D */ id(Operation::STA, AddressingMode::Abx,       5, true ), // STA  abs,X
+        /* 9E */ id(Operation::SHX, AddressingMode::Aby,       5, false), // SHX  abs,Y
+        /* 9F */ id(Operation::SHA, AddressingMode::Aby,       5, false), // SHA  abs,Y
+        /* A0 */ id(Operation::LDY, AddressingMode::Immediate, 2, true ), // LDY  #
+        /* A1 */ id(Operation::LDA, AddressingMode::Izx,       6, true ), // LDA  X,ind
+        /* A2 */ id(Operation::LDX, AddressingMode::Immediate, 2, true ), // LDX  #
+        /* A3 */ id(Operation::LAX, AddressingMode::Izx,       6, false), // LAX  X,ind
+        /* A4 */ id(Operation::LDY, AddressingMode::Zp0,       3, true ), // LDY  zpg
+        /* A5 */ id(Operation::LDA, AddressingMode::Zp0,       3, true ), // LDA  zpg
+        /* A6 */ id(Operation::LDX, AddressingMode::Zp0,       3, true ), // LDX  zpg
+        /* A7 */ id(Operation::LAX, AddressingMode::Zp0,       3, false), // LAX  zpg
+        /* A8 */ id(Operation::TAY, AddressingMode::Implied,   2, true ), // TAY  impl
+        /* A9 */ id(Operation::LDA, AddressingMode::Immediate, 2, true ), // LDA  #
+        /* AA */ id(Operation::TAX, AddressingMode::Implied,   2, true ), // TAX  impl
+        /* AB */ id(Operation::LXA, AddressingMode::Immediate, 2, false), // LXA  #
+        /* AC */ id(Operation::LDY, AddressingMode::Absolute,  4, true ), // LDY  abs
+        /* AD */ id(Operation::LDA, AddressingMode::Absolute,  4, true ), // LDA  abs
+        /* AE */ id(Operation::LDX, AddressingMode::Absolute,  4, true ), // LDX  abs
+        /* AF */ id(Operation::LAX, AddressingMode::Absolute,  4, false), // LAX  abs
+        /* B0 */ id(Operation::BCS, AddressingMode::Relative,  2, true ), // BCS  rel
+        /* B1 */ id(Operation::LDA, AddressingMode::Izy,       5, true ), // LDA  ind,Y
+        /* B2 */ id(Operation::JAM, AddressingMode::Implied,   2, false), // JAM
+        /* B3 */ id(Operation::LAX, AddressingMode::Izy,       5, false), // LAX  ind,Y
+        /* B4 */ id(Operation::LDY, AddressingMode::Zpx,       4, true ), // LDY  zpg,X
+        /* B5 */ id(Operation::LDA, AddressingMode::Zpx,       4, true ), // LDA  zpg,X
+        /* B6 */ id(Operation::LDX, AddressingMode::Zpy,       4, true ), // LDX  zpg,Y
+        /* B7 */ id(Operation::LAX, AddressingMode::Zpy,       4, false), // LAX  zpg,Y
+        /* B8 */ id(Operation::CLV, AddressingMode::Implied,   2, true ), // CLV  impl
+        /* B9 */ id(Operation::LDA, AddressingMode::Aby,       4, true ), // LDA  abs,Y
+        /* BA */ id(Operation::TSX, AddressingMode::Implied,   2, true ), // TSX  impl
+        /* BB */ id(Operation::LAS, AddressingMode::Aby,       4, false), // LAS  abs,Y
+        /* BC */ id(Operation::LDY, AddressingMode::Abx,       4, true ), // LDY  abs,X
+        /* BD */ id(Operation::LDA, AddressingMode::Abx,       4, true ), // LDA  abs,X
+        /* BE */ id(Operation::LDX, AddressingMode::Aby,       4, true ), // LDX  abs,Y
+        /* BF */ id(Operation::LAX, AddressingMode::Aby,       4, false), // LAX  abs,Y
+        /* C0 */ id(Operation::CPY, AddressingMode::Immediate, 2, true ), // CPY  #
+        /* C1 */ id(Operation::CMP, AddressingMode::Izx,       6, true ), // CMP  X,ind
+        /* C2 */ id(Operation::NOP, AddressingMode::Immediate, 2, false), // NOP  #
+        /* C3 */ id(Operation::DCP, AddressingMode::Izx,       8, false), // DCP  X,ind
+        /* C4 */ id(Operation::CPY, AddressingMode::Zp0,       3, true ), // CPY  zpg
+        /* C5 */ id(Operation::CMP, AddressingMode::Zp0,       3, true ), // CMP  zpg
+        /* C6 */ id(Operation::DEC, AddressingMode::Zp0,       5, true ), // DEC  zpg
+        /* C7 */ id(Operation::DCP, AddressingMode::Zp0,       5, false), // DCP  zpg
+        /* C8 */ id(Operation::INY, AddressingMode::Implied,   2, true ), // INY  impl
+        /* C9 */ id(Operation::CMP, AddressingMode::Immediate, 2, true ), // CMP  #
+        /* CA */ id(Operation::DEX, AddressingMode::Implied,   2, true ), // DEX  impl
+        /* CB */ id(Operation::SBX, AddressingMode::Immediate, 2, false), // SBX  #
+        /* CC */ id(Operation::CPY, AddressingMode::Absolute,  4, true ), // CPY  abs
+        /* CD */ id(Operation::CMP, AddressingMode::Absolute,  4, true ), // CMP  abs
+        /* CE */ id(Operation::DEC, AddressingMode::Absolute,  6, true ), // DEC  abs
+        /* CF */ id(Operation::DCP, AddressingMode::Absolute,  6, false), // DCP  abs
+        /* D0 */ id(Operation::BNE, AddressingMode::Relative,  2, true ), // BNE  rel
+        /* D1 */ id(Operation::CMP, AddressingMode::Izy,       5, true ), // CMP  ind,Y
+        /* D2 */ id(Operation::JAM, AddressingMode::Implied,   2, false), // JAM
+        /* D3 */ id(Operation::DCP, AddressingMode::Izy,       8, false), // DCP  ind,Y
+        /* D4 */ id(Operation::NOP, AddressingMode::Zpx,       4, false), // NOP  zpg,X
+        /* D5 */ id(Operation::CMP, AddressingMode::Zpx,       4, true ), // CMP  zpg,X
+        /* D6 */ id(Operation::DEC, AddressingMode::Zpx,       6, true ), // DEC  zpg,X
+        /* D7 */ id(Operation::DCP, AddressingMode::Zpx,       6, false), // DCP  zpg,X
+        /* D8 */ id(Operation::CLD, AddressingMode::Implied,   2, true ), // CLD  impl
+        /* D9 */ id(Operation::CMP, AddressingMode::Aby,       4, true ), // CMP  abs,Y
+        /* DA */ id(Operation::NOP, AddressingMode::Implied,   2, false), // NOP  impl
+        /* DB */ id(Operation::DCP, AddressingMode::Aby,       7, false), // DCP  abs,Y
+        /* DC */ id(Operation::NOP, AddressingMode::Abx,       4, false), // NOP  abs,X
+        /* DD */ id(Operation::CMP, AddressingMode::Abx,       4, true ), // CMP  abs,X
+        /* DE */ id(Operation::DEC, AddressingMode::Abx,       7, true ), // DEC  abs,X
+        /* DF */ id(Operation::DCP, AddressingMode::Abx,       7, false), // DCP  abs,X
+        /* E0 */ id(Operation::CPX, AddressingMode::Immediate, 2, true ), // CPX  #
+        /* E1 */ id(Operation::SBC, AddressingMode::Izx,       6, true ), // SBC  X,ind
+        /* E2 */ id(Operation::NOP, AddressingMode::Immediate, 2, false), // NOP  #
+        /* E3 */ id(Operation::ISC, AddressingMode::Izx,       8, false), // ISC  X,ind
+        /* E4 */ id(Operation::CPX, AddressingMode::Zp0,       3, true ), // CPX  zpg
+        /* E5 */ id(Operation::SBC, AddressingMode::Zp0,       3, true ), // SBC  zpg
+        /* E6 */ id(Operation::INC, AddressingMode::Zp0,       5, true ), // INC  zpg
+        /* E7 */ id(Operation::ISC, AddressingMode::Zp0,       5, false), // ISC  zpg
+        /* E8 */ id(Operation::INX, AddressingMode::Implied,   2, true ), // INX  impl
+        /* E9 */ id(Operation::SBC, AddressingMode::Immediate, 2, true ), // SBC  #
+        /* EA */ id(Operation::NOP, AddressingMode::Implied,   2, true ), // NOP  impl
+        /* EB */ id(Operation::SBC, AddressingMode::Immediate, 2, false), // USBC #
+        /* EC */ id(Operation::CPX, AddressingMode::Absolute,  4, true ), // CPX  abs
+        /* ED */ id(Operation::SBC, AddressingMode::Absolute,  4, true ), // SBC  abs
+        /* EE */ id(Operation::INC, AddressingMode::Absolute,  6, true ), // INC  abs
+        /* EF */ id(Operation::ISC, AddressingMode::Absolute,  6, false), // ISC  abs
+        /* F0 */ id(Operation::BEQ, AddressingMode::Relative,  2, true ), // BEQ  rel
+        /* F1 */ id(Operation::SBC, AddressingMode::Izy,       5, true ), // SBC  ind,Y
+        /* F2 */ id(Operation::JAM, AddressingMode::Implied,   2, false), // JAM
+        /* F3 */ id(Operation::ISC, AddressingMode::Izy,       8, false), // ISC  ind,Y
+        /* F4 */ id(Operation::NOP, AddressingMode::Zpx,       4, false), // NOP  zpg,X
+        /* F5 */ id(Operation::SBC, AddressingMode::Zpx,       4, true ), // SBC  zpg,X
+        /* F6 */ id(Operation::INC, AddressingMode::Zpx,       6, true ), // INC  zpg,X
+        /* F7 */ id(Operation::ISC, AddressingMode::Zpx,       6, false), // ISC  zpg,X
+        /* F8 */ id(Operation::SED, AddressingMode::Implied,   2, true ), // SED  impl
+        /* F9 */ id(Operation::SBC, AddressingMode::Aby,       4, true ), // SBC  abs,Y
+        /* FA */ id(Operation::NOP, AddressingMode::Implied,   2, false), // NOP  impl
+        /* FB */ id(Operation::ISC, AddressingMode::Aby,       7, false), // ISC  abs,Y
+        /* FC */ id(Operation::NOP, AddressingMode::Abx,       4, false), // NOP  abs,X
+        /* FD */ id(Operation::SBC, AddressingMode::Abx,       4, true ), // SBC  abs,X
+        /* FE */ id(Operation::INC, AddressingMode::Abx,       7, true ), // INC  abs,X
+        /* FF */ id(Operation::ISC, AddressingMode::Abx,       7, false), // ISC  abs,X
     ];
 }
 
@@ -700,7 +710,7 @@ mod tests {
         test_decode!([0xE8],             Operation::INX, Operand::None);
         test_decode!([0xE9, 0x12],       Operation::SBC, Operand::Immediate(0x12));
         test_decode!([0xEA],             Operation::NOP, Operand::None);
-        test_decode!([0xEB, 0x12],       Operation::USB, Operand::Immediate(0x12));
+        test_decode!([0xEB, 0x12],       Operation::SBC, Operand::Immediate(0x12));
         test_decode!([0xEC, 0x34, 0x12], Operation::CPX, Operand::Absolute(0x1234, Offset::None));
         test_decode!([0xED, 0x34, 0x12], Operation::SBC, Operand::Absolute(0x1234, Offset::None));
         test_decode!([0xEE, 0x34, 0x12], Operation::INC, Operand::Absolute(0x1234, Offset::None));

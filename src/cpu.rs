@@ -209,10 +209,10 @@ impl<B: Bus> Cpu<B> {
                 _ => unreachable!(),
             }
 
-            if decoded.instruction.operation == Operation::NOP_ {
-                print!("*");
-            } else {
+            if decoded.instruction.legal {
                 print!(" ");
+            } else {
+                print!("*");
             }
 
             print!(
@@ -509,7 +509,17 @@ impl<B: Bus> Cpu<B> {
             // absolute,Y       SBC oper,Y      F9      3       4*
             // (indirect,X)     SBC (oper,X)    E1      2       6
             // (indirect),Y     SBC (oper),Y    F1      2       5*
-            Operation::SBC => {
+            //
+            // SBC oper + NOP
+            //
+            // effectively same as normal SBC immediate, instr. E9.
+            //
+            // A - M - C -> A
+            // N Z C I D V
+            // + + + - - +
+            // addressing   assembler   opc     bytes   cycles
+            // immediate    USBC #oper  EB      2       2
+            Operation::SBC | Operation::USB => {
                 let (value, cycles_required) = self.get_operand_value(&instruction.operand);
                 self.cycles_remaining += cycles_required;
 
@@ -752,7 +762,7 @@ impl<B: Bus> Cpu<B> {
             // - - - - - -
             // addressing   assembler   opc     bytes   cycles
             // implied      NOP         EA      1       2
-            Operation::NOP => {}
+            Operation::NOP if instruction.legal == true => {}
 
             // Push Accumulator on Stack
             //
@@ -1253,14 +1263,18 @@ impl<B: Bus> Cpu<B> {
             // (indirect,X)     DCP (oper,X)    C3      2       8
             // (indirect),Y     DCP (oper),Y    D3      2       8
             Operation::DCP => {
-                self.execute(&Instruction::new(
-                    Operation::DEY,
-                    instruction.operand.clone(),
-                ));
-                self.execute(&Instruction::new(
-                    Operation::CMP,
-                    instruction.operand.clone(),
-                ));
+                let (value, _cycles_required) = self.get_operand_value(&instruction.operand);
+                // TODO: According to nestest, we should not include extra cycles here.
+                // self.cycles_remaining += cycles_required;
+
+                // DEC
+                let result = value.wrapping_sub(1);
+                self.flags_from_result(result);
+
+                self.set_operand_value(&instruction.operand, result);
+
+                // CMP
+                self.operation_compare(self.state.accumulator, result);
             }
 
             // Decrement Memory by One
@@ -1333,15 +1347,41 @@ impl<B: Bus> Cpu<B> {
             // (indirect,X)     ISC (oper,X)    E3      2       8
             // (indirect),Y     ISC (oper),Y    F3      2       4
             Operation::ISC => {
-                self.execute(&Instruction::new(
-                    Operation::INC,
-                    instruction.operand.clone(),
-                ));
+                let (value, _cycles_required) = self.get_operand_value(&instruction.operand);
+                // self.cycles_remaining += cycles_required;
 
-                self.execute(&Instruction::new(
-                    Operation::SBC,
-                    instruction.operand.clone(),
-                ));
+                // INC
+                let result = value.wrapping_add(1);
+
+                self.flags_from_result(result);
+                self.set_operand_value(&instruction.operand, result);
+
+                // SBC
+                let (result, overflow) = {
+                    let carry = match self.state.flags.contains(Flags::CARRY) {
+                        true => 0,
+                        false => 1,
+                    };
+
+                    let result = (self.state.accumulator as u16)
+                        .wrapping_sub(result as u16)
+                        .wrapping_sub(carry);
+
+                    (result as u8, result & 0xFF00 != 0)
+                };
+
+                self.state.flags.set(Flags::OVERFLOW, {
+                    let p1 = ((result.bitxor(self.state.accumulator)) & 0x80) != 0;
+                    let p2 = ((value.bitxor(self.state.accumulator)) & 0x80) != 0;
+
+                    p1 && p2
+                });
+
+                self.state.flags.set(Flags::CARRY, !overflow);
+
+                self.flags_from_result(result);
+
+                self.state.accumulator = result;
             }
 
             // Increment Memory by One
@@ -1416,11 +1456,218 @@ impl<B: Bus> Cpu<B> {
             // 7C   absolut,X   3       4*
             // DC   absolut,X   3       4*
             // FC   absolut,X   3       4*
-            Operation::NOP_ => {
+            Operation::NOP if instruction.legal == false => {
                 // These are illegal operations, but they use cycles according to the operand, so
                 // although we're not performing any operation, we still need to use up cycles.
                 let (_, cycles_required) = self.get_operand_value(&instruction.operand);
                 self.cycles_remaining += cycles_required;
+            }
+
+            // LDA oper + LDX oper
+            //
+            // M -> A -> X
+            // N Z C I D V
+            // + + - - - -
+            // addressing       assembler       opc     bytes   cycles
+            // zeropage         LAX oper        A7      2       3
+            // zeropage,Y       LAX oper,Y      B7      2       4
+            // absolute         LAX oper        AF      3       4
+            // absolut,Y        LAX oper,Y      BF      3       4*
+            // (indirect,X)     LAX (oper,X)    A3      2       6
+            // (indirect),Y     LAX (oper),Y    B3      2       5*
+            Operation::LAX => {
+                let (value, cycles_required) = self.get_operand_value(&instruction.operand);
+                self.cycles_remaining += cycles_required;
+
+                // LDA
+                self.flags_from_result(value);
+                self.state.accumulator = value;
+
+                // LDX
+                self.flags_from_result(value);
+                self.state.x_register = value;
+            }
+
+            // (AXS, AAX)
+            //
+            // A and X are put on the bus at the same time (resulting effectively in an AND operation) and stored in M
+            //
+            // A AND X -> M
+            // N Z C I D V
+            // - - - - - -
+            // addressing       assembler       opc     bytes   cycles
+            // zeropage         SAX oper        87      2       3
+            // zeropage,Y       SAX oper,Y      97      2       4
+            // absolute         SAX oper        8F      3       4
+            // (indirect,X)     SAX (oper,X)    83      2       6
+            Operation::SAX => {
+                // let (value, cycles_required) = self.get_operand_value(&instruction.operand);
+                // self.cycles_remaining += cycles_required;
+
+                let result = self.state.accumulator & self.state.x_register;
+
+                self.set_operand_value(&instruction.operand, result);
+            }
+
+            // (ASO)
+            //
+            // ASL oper + ORA oper
+            //
+            // M = C <- [76543210] <- 0, A OR M -> A
+            // N Z C I D V
+            // + + + - - -
+            // addressing       assembler       opc     bytes   cycles
+            // zeropage         SLO oper        07      2       5
+            // zeropage,X       SLO oper,X      17      2       6
+            // absolute         SLO oper        0F      3       6
+            // absolut,X        SLO oper,X      1F      3       7
+            // absolut,Y        SLO oper,Y      1B      3       7
+            // (indirect,X)     SLO (oper,X)    03      2       8
+            // (indirect),Y     SLO (oper),Y    13      2       8
+            Operation::SLO => {
+                let (value, _cycles_required) = self.get_operand_value(&instruction.operand);
+                // self.cycles_remaining += cycles_required;
+
+                // ASL
+                let result = value.wrapping_shl(1);
+
+                self.flags_from_result(result as u8);
+                self.state.flags.set(Flags::CARRY, value & 0x80 != 0);
+
+                self.set_operand_value(&instruction.operand, result as u8);
+
+                // ORA
+                let result = self.state.accumulator | result;
+                self.flags_from_result(result);
+                self.state.accumulator = result;
+            }
+
+            // ROL oper + AND oper
+            //
+            // M = C <- [76543210] <- C, A AND M -> A
+            // N Z C I D V
+            // + + + - - -
+            // addressing       assembler       opc     bytes   cycles
+            // zeropage         RLA oper        27      2       5
+            // zeropage,X       RLA oper,X      37      2       6
+            // absolute         RLA oper        2F      3       6
+            // absolut,X        RLA oper,X      3F      3       7
+            // absolut,Y        RLA oper,Y      3B      3       7
+            // (indirect,X)     RLA (oper,X)    23      2       8
+            // (indirect),Y     RLA (oper),Y    33      2       8
+            Operation::RLA => {
+                let (value, _cycles_required) = self.get_operand_value(&instruction.operand);
+                // self.cycles_remaining += cycles_required;
+
+                // ROL
+                let result = value.wrapping_shl(1).wrapping_add(
+                    if self.state.flags.contains(Flags::CARRY) {
+                        0x01
+                    } else {
+                        0x00
+                    },
+                );
+
+                self.flags_from_result(result);
+                self.state.flags.set(Flags::CARRY, value & 0x80 != 0);
+
+                self.set_operand_value(&instruction.operand, result);
+
+                // AND
+                let result = self.state.accumulator.bitand(result);
+                self.flags_from_result(result);
+                self.state.accumulator = result;
+            }
+
+            // (LSE)
+            //
+            // LSR oper + EOR oper
+            //
+            // M = 0 -> [76543210] -> C, A EOR M -> A
+            // N            Z           C           I           D           V
+            // +            +           +           -           -           -
+            // addressing           assembler           opc         bytes           cycles
+            // zeropage         SRE oper            47          2           5
+            // zeropage,X           SRE oper,X          57          2           6
+            // absolute         SRE oper            4F          3           6
+            // absolut,X            SRE oper,X          5F          3           7
+            // absolut,Y            SRE oper,Y          5B          3           7
+            // (indirect,X)         SRE (oper,X)            43          2           8
+            // (indirect),Y         SRE (oper),Y            53          2           8
+            Operation::SRE => {
+                let (value, _cycles_required) = self.get_operand_value(&instruction.operand);
+                // self.cycles_remaining += cycles_required;
+
+                // LSR
+                self.state.flags.set(Flags::CARRY, value & 0x01 != 0);
+                let result = value.wrapping_shr(1);
+                self.flags_from_result(result);
+
+                self.set_operand_value(&instruction.operand, result);
+
+                // EOR
+                let result = self.state.accumulator.bitxor(result);
+                self.flags_from_result(result);
+                self.state.accumulator = result;
+            }
+
+            // ROR oper + ADC oper
+            //
+            // M = C -> [76543210] -> C, A + M + C -> A, C
+            // N Z C I D V
+            // + + + - - +
+            // addressing       assembler       opc     bytes   cycles
+            // zeropage         RRA oper        67      2       5
+            // zeropage,X       RRA oper,X      77      2       6
+            // absolute         RRA oper        6F      3       6
+            // absolut,X        RRA oper,X      7F      3       7
+            // absolut,Y        RRA oper,Y      7B      3       7
+            // (indirect,X)     RRA (oper,X)    63      2       8
+            // (indirect),Y     RRA (oper),Y    73      2       8
+            Operation::RRA => {
+                let (value, _cycles_required) = self.get_operand_value(&instruction.operand);
+                // self.cycles_remaining += cycles_required;
+
+                // ROR
+                let ror_result = value.wrapping_shr(1).wrapping_add(
+                    if self.state.flags.contains(Flags::CARRY) {
+                        0x80
+                    } else {
+                        0x00
+                    },
+                );
+
+                self.flags_from_result(ror_result);
+                self.state.flags.set(Flags::CARRY, value & 0x01 != 0);
+
+                self.set_operand_value(&instruction.operand, ror_result);
+
+                // ADC
+                let (adc_result, carry) = {
+                    let carry = match self.state.flags.contains(Flags::CARRY) {
+                        true => 1,
+                        false => 0,
+                    };
+
+                    let temp = (self.state.accumulator as u16)
+                        .wrapping_add(ror_result as u16)
+                        .wrapping_add(carry);
+
+                    (temp as u8, temp & 0xFF00 != 0)
+                };
+
+                self.flags_from_result(adc_result);
+
+                self.state.flags.set(Flags::OVERFLOW, {
+                    let p1 = ((adc_result.bitxor(self.state.accumulator)) & 0x80) != 0;
+                    let p2 = ((ror_result.bitxor(self.state.accumulator)) & 0x80) == 0;
+
+                    p1 && p2
+                });
+
+                self.state.flags.set(Flags::CARRY, carry);
+
+                self.state.accumulator = adc_result;
             }
 
             _ => todo!("Instruction execution not implemented: {:?}", instruction),

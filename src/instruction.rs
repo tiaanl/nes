@@ -33,7 +33,9 @@ pub enum Operation {
     INC,
     INX,
     INY,
-    ISC,
+    #[allow(dead_code)]
+    ISB, // (ISB, INS)
+    ISC, // (ISC, INS)
     JAM,
     JMP,
     JSR,
@@ -45,7 +47,6 @@ pub enum Operation {
     LSR,
     LXA,
     NOP,
-    NOP_,
     ORA,
     PHA,
     PHP,
@@ -78,6 +79,7 @@ pub enum Operation {
     TXA,
     TXS,
     TYA,
+    #[allow(dead_code)]
     USB,
 }
 
@@ -119,7 +121,8 @@ impl std::fmt::Display for Operation {
                 Operation::INC => "INC",
                 Operation::INX => "INX",
                 Operation::INY => "INY",
-                Operation::ISC => "ISC",
+                Operation::ISB => "ISB",
+                Operation::ISC => "ISB", // Alias
                 Operation::JAM => "JAM",
                 Operation::JMP => "JMP",
                 Operation::JSR => "JSR",
@@ -131,7 +134,6 @@ impl std::fmt::Display for Operation {
                 Operation::LSR => "LSR",
                 Operation::LXA => "LXA",
                 Operation::NOP => "NOP",
-                Operation::NOP_ => "NOP",
                 Operation::ORA => "ORA",
                 Operation::PHA => "PHA",
                 Operation::PHP => "PHP",
@@ -222,10 +224,23 @@ pub enum Operand {
 pub struct Instruction {
     pub operation: Operation,
     pub operand: Operand,
+    pub legal: bool,
 }
 
 impl Instruction {
     pub fn new(operation: Operation, operand: Operand) -> Self {
-        Self { operation, operand }
+        Self {
+            operation,
+            operand,
+            legal: true,
+        }
+    }
+
+    pub fn new_illegal(operation: Operation, operand: Operand) -> Self {
+        Self {
+            operation,
+            operand,
+            legal: false,
+        }
     }
 }
