@@ -2,9 +2,6 @@ use crate::{Bus, ClockSignal, Instruction, Offset, Operand, Operation, Processor
 use bitflags::bitflags;
 use std::ops::{BitAnd, BitOr, BitXor};
 
-// A4 = 10100100
-// E4 = 11100100
-
 bitflags! {
     pub struct Flags: u8 {
         const CARRY         = 1 << 0;  // C
@@ -196,21 +193,28 @@ impl<B: Bus> Cpu<B> {
             // C000  4C F5 C5  JMP $C5F5                       A:00 X:00 Y:00 P:24 SP:FD PPU:  0, 21 CYC:7
             print!("{:04X}  ", program_counter);
             match it.bytes_read {
-                0 => print!("          "),
-                1 => print!("{:02X}        ", self.bus.read(program_counter)),
+                0 => print!("         "),
+                1 => print!("{:02X}       ", self.bus.read(program_counter)),
                 2 => print!(
-                    "{:02X} {:02X}     ",
+                    "{:02X} {:02X}    ",
                     self.bus.read(program_counter),
                     self.bus.read(program_counter + 1)
                 ),
                 3 => print!(
-                    "{:02X} {:02X} {:02X}  ",
+                    "{:02X} {:02X} {:02X} ",
                     self.bus.read(program_counter),
                     self.bus.read(program_counter + 1),
                     self.bus.read(program_counter + 2)
                 ),
                 _ => unreachable!(),
             }
+
+            if decoded.instruction.operation == Operation::NOP_ {
+                print!("*");
+            } else {
+                print!(" ");
+            }
+
             print!(
                 "{:<32}",
                 format!(
@@ -738,8 +742,7 @@ impl<B: Bus> Cpu<B> {
                 let result = value.wrapping_shr(1);
                 self.flags_from_result(result);
 
-                let cycles_required = self.set_operand_value(&instruction.operand, result);
-                self.cycles_remaining += cycles_required;
+                self.set_operand_value(&instruction.operand, result);
             }
 
             // No Operation
@@ -855,9 +858,7 @@ impl<B: Bus> Cpu<B> {
             // zeropage,Y   STX oper,Y      96      2       4
             // absolute     STX oper        8E      3       4
             Operation::STX => {
-                let cycles_required =
-                    self.set_operand_value(&instruction.operand, self.state.x_register);
-                self.cycles_remaining += cycles_required;
+                self.set_operand_value(&instruction.operand, self.state.x_register);
             }
 
             // Branch on Carry Set
@@ -1003,8 +1004,7 @@ impl<B: Bus> Cpu<B> {
             // (indirect,X)     STA (oper,X)    81      2       6
             // (indirect),Y     STA (oper),Y    91      2       6
             Operation::STA => {
-                let cycles = self.set_operand_value(&instruction.operand, self.state.accumulator);
-                self.cycles_remaining += cycles;
+                let _ = self.set_operand_value(&instruction.operand, self.state.accumulator);
             }
 
             // Sore Index Y in Memory
@@ -1017,8 +1017,7 @@ impl<B: Bus> Cpu<B> {
             // zeropage,X   STY oper,X  94      2       4
             // absolute     STY oper    8C      3       4
             Operation::STY => {
-                let cycles = self.set_operand_value(&instruction.operand, self.state.y_register);
-                self.cycles_remaining += cycles;
+                self.set_operand_value(&instruction.operand, self.state.y_register);
             }
 
             // Test Bits in Memory with Accumulator
@@ -1083,7 +1082,7 @@ impl<B: Bus> Cpu<B> {
                 self.flags_from_result(result);
                 self.state.flags.set(Flags::CARRY, value & 0x80 != 0);
 
-                self.cycles_remaining += self.set_operand_value(&instruction.operand, result);
+                self.set_operand_value(&instruction.operand, result);
             }
 
             // Rotate One Bit Right (Memory or Accumulator)
@@ -1112,7 +1111,7 @@ impl<B: Bus> Cpu<B> {
                 self.flags_from_result(result);
                 self.state.flags.set(Flags::CARRY, value & 0x01 != 0);
 
-                self.cycles_remaining += self.set_operand_value(&instruction.operand, result);
+                self.set_operand_value(&instruction.operand, result);
             }
 
             // Return from Subroutine
@@ -1281,7 +1280,7 @@ impl<B: Bus> Cpu<B> {
                 let result = value.wrapping_sub(1);
                 self.flags_from_result(result);
 
-                self.cycles_remaining += self.set_operand_value(&instruction.operand, result);
+                self.set_operand_value(&instruction.operand, result);
             }
 
             // Shift Left One Bit (Memory or Accumulator)
@@ -1304,7 +1303,7 @@ impl<B: Bus> Cpu<B> {
                 self.flags_from_result(result as u8);
                 self.state.flags.set(Flags::CARRY, value & 0x80 != 0);
 
-                self.cycles_remaining += self.set_operand_value(&instruction.operand, result as u8);
+                self.set_operand_value(&instruction.operand, result as u8);
             }
 
             // CMP and DEX at once, sets flags like CMP
@@ -1362,7 +1361,7 @@ impl<B: Bus> Cpu<B> {
                 let result = value.wrapping_add(1);
 
                 self.flags_from_result(result);
-                self.cycles_remaining += self.set_operand_value(&instruction.operand, result);
+                self.set_operand_value(&instruction.operand, result);
             }
 
             // Return from Interrupt
@@ -1382,6 +1381,46 @@ impl<B: Bus> Cpu<B> {
 
                 let addr = self.pull_16();
                 self.state.program_counter = addr;
+            }
+
+            // (including DOP, TOP)
+            //
+            // Instructions effecting in 'no operations' in various address modes. Operands are ignored.
+            // N Z C I D V
+            // - - - - - -
+            // opc  addressing  bytes   cycles
+            // 1A   implied     1       2
+            // 3A   implied     1       2
+            // 5A   implied     1       2
+            // 7A   implied     1       2
+            // DA   implied     1       2
+            // FA   implied     1       2
+            // 80   immediate   2       2
+            // 82   immediate   2       2
+            // 89   immediate   2       2
+            // C2   immediate   2       2
+            // E2   immediate   2       2
+            // 04   zeropage    2       3
+            // 44   zeropage    2       3
+            // 64   zeropage    2       3
+            // 14   zeropage,X  2       4
+            // 34   zeropage,X  2       4
+            // 54   zeropage,X  2       4
+            // 74   zeropage,X  2       4
+            // D4   zeropage,X  2       4
+            // F4   zeropage,X  2       4
+            // 0C   absolute    3       4
+            // 1C   absolut,X   3       4*
+            // 3C   absolut,X   3       4*
+            // 5C   absolut,X   3       4*
+            // 7C   absolut,X   3       4*
+            // DC   absolut,X   3       4*
+            // FC   absolut,X   3       4*
+            Operation::NOP_ => {
+                // These are illegal operations, but they use cycles according to the operand, so
+                // although we're not performing any operation, we still need to use up cycles.
+                let (_, cycles_required) = self.get_operand_value(&instruction.operand);
+                self.cycles_remaining += cycles_required;
             }
 
             _ => todo!("Instruction execution not implemented: {:?}", instruction),
@@ -1433,19 +1472,18 @@ impl<B: Bus> Cpu<B> {
         }
     }
 
-    #[must_use]
-    fn set_operand_value(&mut self, operand: &Operand, value: u8) -> u8 {
+    fn set_operand_value(&mut self, operand: &Operand, value: u8) {
         match operand {
             Operand::None => {
                 self.state.accumulator = value;
-                0
             }
             Operand::Immediate(_) => unreachable!("Can not set a value for an Immediate operand!"),
             Operand::Relative(_) => todo!(),
             _ => {
-                let (address, cycles_required) = self.get_absolute_address_for_operand(operand);
+                // TODO: For setting memory values, we don't add more cycles?  This seems to be the
+                // case according to nestest.
+                let (address, _) = self.get_absolute_address_for_operand(operand);
                 self.bus.write(address, value);
-                cycles_required
             }
         }
     }
