@@ -3,6 +3,7 @@ mod cpu;
 mod decoder;
 mod instruction;
 mod mapper;
+mod ops;
 
 use crate::cartridge::Cartridge;
 use crate::instruction::{Instruction, Offset, Operand, Operation};
